@@ -1,0 +1,476 @@
+{
+ "vendors": [
+  {
+   "id": "v-lcl",
+   "legal_name": "Lion City Logistics Pte Ltd",
+   "aliases": [
+    "Lion City Logistics",
+    "LCL"
+   ],
+   "country": "SG",
+   "domains": [
+    "lioncitylogistics.com.sg"
+   ],
+   "bank_accounts": [
+    {
+     "bank_name": "DBS Bank Ltd",
+     "account_number": "0721234567",
+     "swift_bic": "DBSSSGSG",
+     "country": "SG",
+     "verified_on": "2024-03-14"
+    }
+   ],
+   "callback_contact": "Tan Mei Ling, Finance Manager",
+   "callback_phone": "+65 6123 4567",
+   "default_currency": "SGD",
+   "payment_terms_days": 30
+  },
+  {
+   "id": "v-prc",
+   "legal_name": "Pacific Rim Components Co., Ltd.",
+   "aliases": [
+    "Pacific Rim Components",
+    "PRC"
+   ],
+   "country": "JP",
+   "domains": [
+    "pacrim-components.co.jp"
+   ],
+   "bank_accounts": [
+    {
+     "bank_name": "MUFG Bank, Ltd.",
+     "account_number": "1234567",
+     "swift_bic": "BOTKJPJT",
+     "country": "JP",
+     "verified_on": "2023-11-02"
+    }
+   ],
+   "callback_contact": "Kenji Watanabe, Accounts Receivable",
+   "callback_phone": "+81 3 5555 0142",
+   "default_currency": "USD",
+   "payment_terms_days": 45
+  },
+  {
+   "id": "v-hos",
+   "legal_name": "Harbourline Office Supplies Pte Ltd",
+   "aliases": [
+    "Harbourline"
+   ],
+   "country": "SG",
+   "domains": [
+    "harbourline.sg"
+   ],
+   "bank_accounts": [
+    {
+     "bank_name": "OCBC Bank",
+     "account_number": "5012345001",
+     "swift_bic": "OCBCSGSG",
+     "country": "SG",
+     "verified_on": "2025-01-20"
+    }
+   ],
+   "callback_contact": "Ravi Kumar, Accounts",
+   "callback_phone": "+65 6789 0011",
+   "default_currency": "SGD",
+   "payment_terms_days": 30
+  }
+ ],
+ "payments": [
+  {
+   "id": "p-v-lcl-000",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1000",
+   "amount": 60900.0,
+   "currency": "SGD",
+   "paid_on": "2025-05-06",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-001",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1007",
+   "amount": 68600.0,
+   "currency": "SGD",
+   "paid_on": "2025-06-05",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-002",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1014",
+   "amount": 85800.0,
+   "currency": "SGD",
+   "paid_on": "2025-07-03",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-003",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1021",
+   "amount": 63000.0,
+   "currency": "SGD",
+   "paid_on": "2025-08-06",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-004",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1028",
+   "amount": 61100.0,
+   "currency": "SGD",
+   "paid_on": "2025-09-07",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-005",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1035",
+   "amount": 67700.0,
+   "currency": "SGD",
+   "paid_on": "2025-10-04",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-006",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1042",
+   "amount": 81100.0,
+   "currency": "SGD",
+   "paid_on": "2025-11-07",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-007",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1049",
+   "amount": 67000.0,
+   "currency": "SGD",
+   "paid_on": "2025-12-11",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-008",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1056",
+   "amount": 74700.0,
+   "currency": "SGD",
+   "paid_on": "2026-01-14",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-009",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1063",
+   "amount": 80600.0,
+   "currency": "SGD",
+   "paid_on": "2026-02-16",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-010",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1070",
+   "amount": 86600.0,
+   "currency": "SGD",
+   "paid_on": "2026-03-14",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-011",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1077",
+   "amount": 84400.0,
+   "currency": "SGD",
+   "paid_on": "2026-04-11",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-012",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1084",
+   "amount": 69700.0,
+   "currency": "SGD",
+   "paid_on": "2026-05-12",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-013",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1091",
+   "amount": 93500.0,
+   "currency": "SGD",
+   "paid_on": "2026-06-10",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-014",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1098",
+   "amount": 63600.0,
+   "currency": "SGD",
+   "paid_on": "2026-07-11",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-015",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1105",
+   "amount": 63400.0,
+   "currency": "SGD",
+   "paid_on": "2026-08-12",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-016",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1112",
+   "amount": 81100.0,
+   "currency": "SGD",
+   "paid_on": "2026-09-12",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-lcl-017",
+   "vendor_id": "v-lcl",
+   "invoice_number": "LCL-INV-2025-1119",
+   "amount": 85500.0,
+   "currency": "SGD",
+   "paid_on": "2026-10-08",
+   "account_ref": "0721234567"
+  },
+  {
+   "id": "p-v-prc-000",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1000",
+   "amount": 42200.0,
+   "currency": "USD",
+   "paid_on": "2025-05-28",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-001",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1007",
+   "amount": 40700.0,
+   "currency": "USD",
+   "paid_on": "2025-07-14",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-002",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1014",
+   "amount": 66200.0,
+   "currency": "USD",
+   "paid_on": "2025-08-28",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-003",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1021",
+   "amount": 57600.0,
+   "currency": "USD",
+   "paid_on": "2025-10-13",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-004",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1028",
+   "amount": 39600.0,
+   "currency": "USD",
+   "paid_on": "2025-11-24",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-005",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1035",
+   "amount": 64300.0,
+   "currency": "USD",
+   "paid_on": "2026-01-07",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-006",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1042",
+   "amount": 67100.0,
+   "currency": "USD",
+   "paid_on": "2026-02-18",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-007",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1049",
+   "amount": 50900.0,
+   "currency": "USD",
+   "paid_on": "2026-04-01",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-008",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1056",
+   "amount": 59600.0,
+   "currency": "USD",
+   "paid_on": "2026-05-19",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-009",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1063",
+   "amount": 43500.0,
+   "currency": "USD",
+   "paid_on": "2026-07-04",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-010",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1070",
+   "amount": 45100.0,
+   "currency": "USD",
+   "paid_on": "2026-08-19",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-prc-011",
+   "vendor_id": "v-prc",
+   "invoice_number": "PRC-1077",
+   "amount": 61900.0,
+   "currency": "USD",
+   "paid_on": "2026-10-03",
+   "account_ref": "1234567"
+  },
+  {
+   "id": "p-v-hos-000",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1000",
+   "amount": 2900.0,
+   "currency": "SGD",
+   "paid_on": "2025-09-03",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-001",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1007",
+   "amount": 2600.0,
+   "currency": "SGD",
+   "paid_on": "2025-10-01",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-002",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1014",
+   "amount": 1400.0,
+   "currency": "SGD",
+   "paid_on": "2025-10-30",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-003",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1021",
+   "amount": 1700.0,
+   "currency": "SGD",
+   "paid_on": "2025-12-01",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-004",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1028",
+   "amount": 1500.0,
+   "currency": "SGD",
+   "paid_on": "2026-01-04",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-005",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1035",
+   "amount": 3700.0,
+   "currency": "SGD",
+   "paid_on": "2026-02-04",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-006",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1042",
+   "amount": 1600.0,
+   "currency": "SGD",
+   "paid_on": "2026-03-02",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-007",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1049",
+   "amount": 3500.0,
+   "currency": "SGD",
+   "paid_on": "2026-03-28",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-008",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1056",
+   "amount": 1700.0,
+   "currency": "SGD",
+   "paid_on": "2026-04-29",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-009",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1063",
+   "amount": 3900.0,
+   "currency": "SGD",
+   "paid_on": "2026-05-28",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-010",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1070",
+   "amount": 1500.0,
+   "currency": "SGD",
+   "paid_on": "2026-06-28",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-011",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1077",
+   "amount": 2100.0,
+   "currency": "SGD",
+   "paid_on": "2026-07-31",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-012",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1084",
+   "amount": 1300.0,
+   "currency": "SGD",
+   "paid_on": "2026-09-02",
+   "account_ref": "5012345001"
+  },
+  {
+   "id": "p-v-hos-013",
+   "vendor_id": "v-hos",
+   "invoice_number": "HOS-1091",
+   "amount": 1600.0,
+   "currency": "SGD",
+   "paid_on": "2026-09-30",
+   "account_ref": "5012345001"
+  }
+ ]
+}

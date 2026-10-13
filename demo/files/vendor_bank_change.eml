@@ -1,0 +1,70 @@
+From: "Kenji Watanabe" <accounts@pacrim-components.co.jp>
+To: ap-team@acme-holdings.com
+Subject: Updated remittance details - PRC-24117
+Date: Sun, 11 Oct 2026 11:02:37 +0000
+Authentication-Results: mx.acme-holdings.com; spf=pass
+ smtp.mailfrom=pacrim-components.co.jp; dkim=pass
+ header.d=pacrim-components.co.jp; dmarc=pass
+ header.from=pacrim-components.co.jp
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============3065834462574543299=="
+
+--===============3065834462574543299==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello,
+
+Due to an internal restructuring we have moved our banking to a new provider.=
+ Please use the details on the attached invoice PRC-24117 (USD 61,250.00) and=
+ for all future payments. Our MUFG account will be closed at the end of the m=
+onth.
+
+Best regards,
+Kenji Watanabe
+Accounts Receivable, Pacific Rim Components
+
+--===============3065834462574543299==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="PRC-24117.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3Vy
+Y2UpCjEgMCBvYmoKPDwKL0YxIDIgMCBSIC9GMiAzIDAgUgo+PgplbmRvYmoKMiAwIG9iago8PAov
+QmFzZUZvbnQgL0hlbHZldGljYSAvRW5jb2RpbmcgL1dpbkFuc2lFbmNvZGluZyAvTmFtZSAvRjEg
+L1N1YnR5cGUgL1R5cGUxIC9UeXBlIC9Gb250Cj4+CmVuZG9iagozIDAgb2JqCjw8Ci9CYXNlRm9u
+dCAvSGVsdmV0aWNhLUJvbGQgL0VuY29kaW5nIC9XaW5BbnNpRW5jb2RpbmcgL05hbWUgL0YyIC9T
+dWJ0eXBlIC9UeXBlMSAvVHlwZSAvRm9udAo+PgplbmRvYmoKNCAwIG9iago8PAovQ29udGVudHMg
+OCAwIFIgL01lZGlhQm94IFsgMCAwIDU5NS4yNzU2IDg0MS44ODk4IF0gL1BhcmVudCA3IDAgUiAv
+UmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSIC9Qcm9jU2V0IFsgL1BERiAvVGV4dCAvSW1hZ2VCIC9J
+bWFnZUMgL0ltYWdlSSBdCj4+IC9Sb3RhdGUgMCAvVHJhbnMgPDwKCj4+IAogIC9UeXBlIC9QYWdl
+Cj4+CmVuZG9iago1IDAgb2JqCjw8Ci9QYWdlTW9kZSAvVXNlTm9uZSAvUGFnZXMgNyAwIFIgL1R5
+cGUgL0NhdGFsb2cKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0F1dGhvciAoYW5vbnltb3VzKSAvQ3Jl
+YXRpb25EYXRlIChEOjIwMjYxMDExMTEwMjM3KzAwJzAwJykgL0NyZWF0b3IgKGFub255bW91cykg
+L0tleXdvcmRzICgpIC9Nb2REYXRlIChEOjIwMjYxMDExMTEwMjM3KzAwJzAwJykgL1Byb2R1Y2Vy
+IChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSBcKG9wZW5zb3VyY2VcKSkgCiAgL1N1YmplY3QgKHVu
+c3BlY2lmaWVkKSAvVGl0bGUgKHVudGl0bGVkKSAvVHJhcHBlZCAvRmFsc2UKPj4KZW5kb2JqCjcg
+MCBvYmoKPDwKL0NvdW50IDEgL0tpZHMgWyA0IDAgUiBdIC9UeXBlIC9QYWdlcwo+PgplbmRvYmoK
+OCAwIG9iago8PAovRmlsdGVyIFsgL0FTQ0lJODVEZWNvZGUgL0ZsYXRlRGVjb2RlIF0gL0xlbmd0
+aCA2NTAKPj4Kc3RyZWFtCkdhdCR0PyNTRl4mOkRnLWZaMUZQbGc9TjlJLShsLzpfOVFraSRObGNS
+WS8zKF47cjNocVg7JilQNiozP1hYbnM4bUBCWGNjUVs8aFllO0FEXmFPcmAnKkshXERaRClJJkM5
+O15eMXVzOGNub2xyOUhXUXAhaGhJIk9iYVJjJi9jOGJJP01MJ0toXXVpUl9VXSdASTNTVT9hdWk1
+a2BQT0c/RWAkUExqcWJoa21uIz1vOU5VbmEuU05mNiM3RnVpQVstUVxcRlZvRGJlLFRnQik1Wmle
+JVo5Q2cmc3MxaVpAZSFBJ1BzXjYiMDAsbGY1Lzdockg0Zj0jaSkrOyZmaCU+InQ5XkEvbj8ucVhH
+bUQ9XTEjMThwJVVSLGVgcElDO24vRCQ+ak8yNlFTTURlVi8iYlldZ3FNPGkhOGhWMVAtXGcqTyMh
+M1Y7ak9jXVwqVEU4Iyw3IVBZQVlXQWdVbFtULiRsdGkyVjAmP04qQEg1T0Q+O2dOOygySEo3PFVL
+QWJeNmE8MzkiVDRCXGFrVDlYM1FiVjZkPmZtbSlTJGs9NGErTS1QVTNgXkcxOUpSKywkKzlebDU0
+UkBvTl5bZGFYVUhORE5HWmQ9QjIkXSkhJyM0IkdOWGdgRU1IaDo4Y1FtLFU5akpDJktdKHE/S11j
+XGhhZWdOZzU3ODpFJmhULUZsMkJvUWowMXQpTlhpSz43UCc8OyVmRjxBNmdSWzRacERrZylvMVI+
+W3A3IlMuLilSPiNxa0JyUUY2cSlhLDYrbmk+c2RKKCkpUDNLWV4yWzNATTFEYk5UL14/bSh0WU9L
+P1ReXWdQLy9aQ3VvJiNWcipoO1w3YCU6U21xbFxsOFNHcis5KX4+ZW5kc3RyZWFtCmVuZG9iagp4
+cmVmCjAgOQowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwNjEgMDAwMDAgbiAKMDAwMDAwMDEw
+MiAwMDAwMCBuIAowMDAwMDAwMjA5IDAwMDAwIG4gCjAwMDAwMDAzMjEgMDAwMDAgbiAKMDAwMDAw
+MDUyNCAwMDAwMCBuIAowMDAwMDAwNTkyIDAwMDAwIG4gCjAwMDAwMDA4NTMgMDAwMDAgbiAKMDAw
+MDAwMDkxMiAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9JRCAKWzwwYWQxZDU2MTNkMGVhYmFjY2NjODE3
+OWYyNjljYmI0ND48MGFkMWQ1NjEzZDBlYWJhY2NjYzgxNzlmMjY5Y2JiNDQ+XQolIFJlcG9ydExh
+YiBnZW5lcmF0ZWQgUERGIGRvY3VtZW50IC0tIGRpZ2VzdCAob3BlbnNvdXJjZSkKCi9JbmZvIDYg
+MCBSCi9Sb290IDUgMCBSCi9TaXplIDkKPj4Kc3RhcnR4cmVmCjE2NTIKJSVFT0YK
+
+--===============3065834462574543299==--
