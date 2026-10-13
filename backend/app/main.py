@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from pathlib import Path
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
@@ -34,7 +34,8 @@ log = logging.getLogger("vbw")
 
 def build_deps(s: Settings) -> Deps:
     gemini = None
-    if s.google_cloud_project:
+    if (s.gemini_mode == "vertex" and (s.gemini_project or s.google_cloud_project)) or \
+            (s.gemini_mode == "api_key" and s.gemini_api_key):
         try:
             from .gemini import Gemini
             gemini = Gemini(s)
@@ -56,7 +57,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Verify-Before-Wire", version="2.0.0", lifespan=lifespan)
 
-CSP = ("default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' https://fonts.googleapis.com; "
+MAX_REQUEST_BYTES = 110 * 1024 * 1024
+CSP = ("default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; "
+       "style-src 'self' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; img-src 'self' data:; frame-src https://*.firebaseapp.com; "
        "connect-src 'self' https://*.googleapis.com; frame-ancestors 'none'; base-uri 'none'")
 
@@ -64,11 +67,22 @@ CSP = ("default-src 'self'; script-src 'self' https://www.gstatic.com; style-src
 @app.middleware("http")
 async def security_and_logging(request: Request, call_next):
     rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", rid):
+        rid = uuid.uuid4().hex[:16]
     t0 = time.perf_counter()
+    try:
+        if int(request.headers.get("content-length") or 0) > MAX_REQUEST_BYTES:
+            return JSONResponse({"detail": "Request too large."}, status_code=413)
+    except ValueError:
+        return JSONResponse({"detail": "Bad Content-Length."}, status_code=400)
     resp = await call_next(request)
     resp.headers.update({"X-Request-ID": rid, "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
                          "Referrer-Policy": "no-referrer", "Content-Security-Policy": CSP,
-                         "Strict-Transport-Security": "max-age=31536000; includeSubDomains"})
+                         "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+                         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+                         "Cross-Origin-Opener-Policy": "same-origin-allow-popups"})
+    if request.url.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store"
     if not request.url.path.startswith("/assets"):
         log.info(json.dumps({"rid": rid, "method": request.method, "path": request.url.path,
                              "status": resp.status_code, "ms": int((time.perf_counter() - t0) * 1000)}))
@@ -77,6 +91,17 @@ async def security_and_logging(request: Request, call_next):
 
 def deps(r: Request) -> Deps:
     return r.app.state.deps
+
+
+async def read_limited(f: UploadFile, max_bytes: int) -> bytes:
+    """Read an upload in chunks and stop as soon as it exceeds the limit."""
+    buf, total = bytearray(), 0
+    while chunk := await f.read(1024 * 1024):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(413, f"{f.filename} is larger than {max_bytes // (1024 * 1024)} MB.")
+        buf += chunk
+    return bytes(buf)
 
 
 @app.exception_handler(ValidationError)
@@ -206,9 +231,7 @@ async def onboarding_status(tid: str, request: Request):
 async def import_csv(tid: str, kind: str, request: Request, file: UploadFile = File(...), dry_run: bool = Form(False)):
     a = await access(request, tid, Perm.data_import)
     d = deps(request)
-    raw = await file.read()
-    if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(413, "CSV files must be under 20 MB.")
+    raw = await read_limited(file, 20 * 1024 * 1024)
     text = raw.decode("utf-8-sig", errors="replace")
     if kind == "vendors":
         items, errors = onboarding.parse_vendors(text)
@@ -229,6 +252,8 @@ async def import_csv(tid: str, kind: str, request: Request, file: UploadFile = F
 async def import_sample(tid: str, request: Request):
     a = await access(request, tid, Perm.data_import)
     d = deps(request)
+    if not d.settings.demo_enabled:
+        raise HTTPException(404, "Sample data is disabled on this installation.")
     vendors, payments = onboarding.sample_data(d.settings.seed_file)
     await d.store.import_vendors(tid, vendors)
     await d.store.import_payments(tid, payments)
@@ -425,6 +450,10 @@ def _rate_limit(tid: str, per_min: int):
 async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes]], scenario: str | None = None,
                     idem: str | None = None, external_ref: str | None = None) -> tuple[Case, bool]:
     s, tid = d.settings, a.tenant_id
+    if idem is not None and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idem):
+        raise HTTPException(422, "Idempotency-Key must be 1-128 letters, digits or . _ : -")
+    if external_ref is not None and len(external_ref) > 128:
+        raise HTTPException(422, "external_ref is too long.")
     if idem and (existing := await d.store.find_case_by_idempotency(tid, idem)):
         return existing, False
     _rate_limit(tid, s.rate_limit_per_minute)
@@ -446,7 +475,7 @@ async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes
                 doc.storage_uri = await d.store.put_blob(f"{tid}/cases/{case.id}/{doc.label}", raw, doc.mime_type)
                 case.sources.append(doc)
         except UnsupportedFile as e:
-            raise HTTPException(415, str(e))
+            raise HTTPException(415, str(e)) from None
     await d.store.create_case(case)
     await d.store.audit(tid, a.principal.actor, "case.created", f"case/{case.id}",
                         {"inputs": {x.label: x.sha256 for x in case.sources}, "external_ref": external_ref})
@@ -457,7 +486,10 @@ async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes
 async def create_case(tid: str, request: Request, files: list[UploadFile] = File(...),
                       external_ref: str | None = Form(None)):
     a = await access(request, tid, Perm.case_create)
-    payload = [(f.filename or "upload", f.content_type, await f.read()) for f in files]
+    lim = deps(request).settings.max_upload_mb * 1024 * 1024
+    if len(files) > deps(request).settings.max_files:
+        raise HTTPException(400, f"Upload at most {deps(request).settings.max_files} files.")
+    payload = [(f.filename or "upload", f.content_type, await read_limited(f, lim)) for f in files]
     case, _ = await _new_case(deps(request), a, payload, idem=request.headers.get("idempotency-key"),
                               external_ref=external_ref)
     return {"case_id": case.id, "inputs": [x.label for x in case.sources]}
@@ -480,7 +512,10 @@ async def check_sync(tid: str, request: Request, files: list[UploadFile] = File(
     """For integrations: submit and wait for the recommendation (typically 10-30 s)."""
     a = await access(request, tid, Perm.case_create)
     d = deps(request)
-    payload = [(f.filename or "upload", f.content_type, await f.read()) for f in files]
+    if len(files) > d.settings.max_files:
+        raise HTTPException(400, f"Upload at most {d.settings.max_files} files.")
+    payload = [(f.filename or "upload", f.content_type, await read_limited(f, d.settings.max_upload_mb * 1024 * 1024))
+               for f in files]
     case, new = await _new_case(d, a, payload, idem=request.headers.get("idempotency-key"), external_ref=external_ref)
     if new and (task := await _run_owned(d, case, None)):
         await asyncio.wait_for(task, timeout=120)
@@ -531,7 +566,7 @@ async def stream(tid: str, cid: str, request: Request, replay: int = 0):
 
     async def gen():
         yield "retry: 2000\n\n"
-        if replay and case.scenario:
+        if replay and case.scenario and d.settings.demo_enabled:
             async for chunk in _replay(d, case):
                 yield chunk
             return
@@ -690,6 +725,8 @@ def _scenarios(s: Settings) -> list[dict]:
 @app.get("/api/demo")
 async def list_demo(request: Request):
     s = deps(request).settings
+    if not s.demo_enabled:
+        return []
     return [{**{k: sc[k] for k in ("id", "title", "description")},
              "has_replay": (s.demo_dir / "replays" / f"{sc['id']}.json").exists()} for sc in _scenarios(s)]
 
@@ -698,6 +735,8 @@ async def list_demo(request: Request):
 async def run_demo(tid: str, scenario_id: str, request: Request):
     a = await access(request, tid, Perm.case_create)
     d = deps(request)
+    if not d.settings.demo_enabled:
+        raise HTTPException(404, "Not found.")
     sc = next((x for x in _scenarios(d.settings) if x["id"] == scenario_id), None)
     if not sc:
         raise HTTPException(404, "Unknown scenario.")

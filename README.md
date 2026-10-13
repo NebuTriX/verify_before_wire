@@ -33,6 +33,24 @@ PROJECT_ID=your-project FIREBASE_API_KEY=<web api key> REGION=asia-southeast1 ./
 5. Optional replay fail-safe: create an analyst API key, then
    `python backend/scripts/record_replays.py <url> <workspace-id> <api-key>` and redeploy.
 
+## Run on AWS, Azure or your own servers
+
+See `deploy/docker-compose.yml` and `deploy/vbw.env.example`. The app runs with PostgreSQL
+(`STORE_BACKEND=sql`) and S3, Azure Blob or local disk (`BLOB_BACKEND`). Gemini is reached through
+the customer's own Google Cloud project via Workload Identity Federation (`GEMINI_MODE=vertex`),
+or an API key (`GEMINI_MODE=api_key`).
+
+## Quality and security loop
+
+```bash
+cd backend
+python -m pytest -q                         # 45 tests: API on memory + SQL, security, fuzzing
+ruff check app scripts tests && bandit -r app -ll && pip-audit -r requirements.txt
+python scripts/datasets.py enron --limit 500 # optional: real legitimate emails from Kaggle
+python scripts/evaluate.py                   # fails if fraud slips through or false alarms rise
+```
+CI (`.github/workflows/ci.yml`) runs all of this plus PostgreSQL, gitleaks, Trivy and CodeQL on every change.
+
 ## Integration API (for ERP / treasury systems)
 
 ```bash

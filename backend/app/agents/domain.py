@@ -7,7 +7,7 @@ import asyncio
 from ..models import Evidence, Finding, Severity
 from ..parsing import addr_domain, email_auth_results
 from ..sources import SourceUnavailable
-from .base import FREE_MAIL, AgentContext, Emit, lookalike_of
+from .base import FREE_MAIL, AgentContext, Emit, domain_valid, lookalike_of
 
 NAME = "domain"
 TITLE = "Sender & domain"
@@ -24,6 +24,13 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
                            data_source="Payment request"))
         return
 
+    if not domain_valid(domain):
+        await emit(Finding(agent=NAME, code="MALFORMED_SENDER_DOMAIN", severity=Severity.high,
+                           title="Sender domain is malformed",
+                           detail="The sender address isn't a valid internet domain, so it can't be verified.",
+                           evidence=[Evidence(source="email", excerpt=(sender or "")[:120])],
+                           data_source="Domain format check"))
+        return
     trusted_vendor = ctx.vendor.domains if ctx.vendor else []
     all_trusted = list(dict.fromkeys(s.company_domain_list + [d for v in ctx.vendors for d in v.domains]))
 

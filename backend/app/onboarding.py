@@ -9,13 +9,14 @@ from datetime import date
 
 from pydantic import ValidationError
 
-from .agents.base import iban_valid, swift_valid
+from .agents.base import gstin_valid, iban_valid, ifsc_valid, swift_valid
 from .models import BankAccount, Payment, Vendor
 
 MAX_ROWS = 50_000
 VENDOR_COLUMNS = ["vendor_id", "legal_name", "aliases", "country", "domains", "bank_name", "account_number",
                   "iban", "swift_bic", "bank_country", "verified_on", "callback_contact", "callback_phone",
                   "default_currency", "payment_terms_days"]
+OPTIONAL_VENDOR_COLUMNS = ["gstin", "ifsc"]   # India; leave blank or omit elsewhere
 PAYMENT_COLUMNS = ["payment_id", "vendor_id", "invoice_number", "amount", "currency", "paid_on", "account_ref"]
 CCY = re.compile(r"^[A-Z]{3}$")
 CC = re.compile(r"^[A-Z]{2}$")
@@ -37,7 +38,15 @@ def template_csv(kind: str) -> str:
 
 
 def _rows(text: str, columns: list[str]) -> tuple[list[dict], list[dict]]:
-    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+    try:
+        return _rows_unsafe(text, columns)
+    except csv.Error as e:
+        return [], [{"row": 0, "field": "", "message": f"the file isn't valid CSV ({e}); export it again as CSV UTF-8"}]
+
+
+def _rows_unsafe(text: str, columns: list[str]) -> tuple[list[dict], list[dict]]:
+    text = text.replace("\x00", "")
+    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff"), newline=""))
     missing = [c for c in columns if c not in (reader.fieldnames or [])]
     if missing:
         return [], [{"row": 1, "field": ",".join(missing), "message": "missing column(s); download the template"}]
@@ -82,14 +91,22 @@ def parse_vendors(text: str) -> tuple[list[Vendor], list[dict]]:
             err("default_currency", "use a 3-letter code, e.g. SGD")
         if any(e["row"] == n for e in errors):
             continue
+        if r.get("gstin") and not gstin_valid(r["gstin"]):
+            err("gstin", "GSTIN check digit fails")
+            continue
+        if r.get("ifsc") and not ifsc_valid(r["ifsc"]):
+            err("ifsc", "not a valid IFSC")
+            continue
         acct = BankAccount(bank_name=r["bank_name"], account_number=r["account_number"] or None,
+                           ifsc=(r.get("ifsc") or "").upper() or None,
                            iban=r["iban"] or None, swift_bic=(r["swift_bic"] or "").upper() or None,
                            country=(r["bank_country"] or r["country"]).upper(),
                            verified_on=r["verified_on"] or date.today().isoformat())
         g = grouped.setdefault(r["vendor_id"], {
             "id": r["vendor_id"], "legal_name": r["legal_name"],
             "aliases": [a for a in r["aliases"].split("|") if a], "country": r["country"].upper(),
-            "domains": domains, "bank_accounts": [], "callback_contact": r["callback_contact"],
+            "domains": domains, "gstin": (r.get("gstin") or "").upper() or None,
+            "bank_accounts": [], "callback_contact": r["callback_contact"],
             "callback_phone": r["callback_phone"], "default_currency": (r["default_currency"] or "USD").upper(),
             "payment_terms_days": int(r["payment_terms_days"] or 30)})
         g["bank_accounts"].append(acct)

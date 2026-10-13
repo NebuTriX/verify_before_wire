@@ -115,5 +115,5 @@ async def run(ctx: AgentContext, emit: Emit, now: datetime | None = None) -> Non
 
 def _median_gap_days(hist) -> float | None:
     dates = [datetime.fromisoformat(p.paid_on) for p in hist]
-    gaps = [(b - a).days for a, b in zip(dates, dates[1:]) if (b - a).days > 0]
+    gaps = [(b - a).days for a, b in zip(dates, dates[1:], strict=False) if (b - a).days > 0]
     return statistics.median(gaps) if len(gaps) >= 3 else None

@@ -53,6 +53,8 @@ class PaymentRequest(BaseModel):
     account_number: str | None = None
     iban: str | None = None
     swift_bic: str | None = None
+    ifsc: str | None = Field(None, description="Indian bank branch code (11 chars), if present")
+    gstin: str | None = Field(None, description="Indian GST number of the invoicing entity (15 chars), if present")
     amount: float | None = None
     currency: str | None = Field(None, description="ISO-4217 code")
     invoice_number: str | None = None
@@ -204,6 +206,7 @@ class BankAccount(BaseModel):
     account_number: str | None = None
     iban: str | None = None
     swift_bic: str | None = None
+    ifsc: str | None = None
     country: str
     verified_on: str
 
@@ -214,6 +217,7 @@ class Vendor(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     country: str
     domains: list[str]
+    gstin: str | None = None
     bank_accounts: list[BankAccount]
     callback_contact: str
     callback_phone: str                # from the vendor master, never from the request

@@ -1,0 +1,27 @@
+# Runs Verify-Before-Wire on any VM: AWS EC2, Azure VM, on-premises. Data stays on this machine
+# (PostgreSQL + local file storage). Put it behind your company's TLS reverse proxy / load balancer.
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_DB: vbw, POSTGRES_USER: vbw, POSTGRES_PASSWORD_FILE: /run/secrets/db_password }
+    secrets: [db_password]
+    volumes: [dbdata:/var/lib/postgresql/data]
+    restart: unless-stopped
+  app:
+    image: ghcr.io/nebutrix/verify_before_wire:latest   # pin a signed version tag in production
+    depends_on: [db]
+    env_file: ./vbw.env
+    environment:
+      STORE_BACKEND: sql
+      BLOB_BACKEND: file
+      BLOB_DIR: /data/blobs
+    volumes: [blobs:/data/blobs]
+    ports: ["127.0.0.1:8080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+secrets:
+  db_password: { file: ./db_password.txt }
+volumes: { dbdata: {}, blobs: {} }

@@ -53,7 +53,7 @@ pre{background:var(--ink);color:#E8EDEF;padding:1rem 1.2rem;border-radius:8px;ov
   <text x="105" y="195" text-anchor="middle" font-size="12" fill="#5B6770">calls the API with a key</text>
   <!-- cloud run frame -->
   <rect x="230" y="30" width="520" height="590" rx="12" fill="#E3ECF3" stroke="#24527A" stroke-dasharray="6 4"/>
-  <text x="250" y="55" font-size="13" fill="#24527A" font-weight="600">Cloud Run service (one per environment, serves app + API)</text>
+  <text x="250" y="55" font-size="13" fill="#24527A" font-weight="600">Runs in the customer's cloud: Cloud Run, AWS, Azure or own servers</text>
   <g font-size="13">
     <rect x="260" y="70" width="460" height="44" rx="6" fill="#fff" stroke="#16202A"/>
     <text x="490" y="91" text-anchor="middle" font-weight="600">1  Who are you? Which company? What may you do?</text>
@@ -92,13 +92,13 @@ pre{background:var(--ink);color:#E8EDEF;padding:1rem 1.2rem;border-radius:8px;ov
   <!-- right: data + external -->
   <text x="780" y="40" font-size="13" fill="#5B6770" font-weight="600">Data, separate per company</text>
   <rect x="780" y="55" width="200" height="118" rx="8" fill="#fff" stroke="#16202A"/>
-  <text x="880" y="80" text-anchor="middle" font-size="14" font-weight="600">Firestore</text>
+  <text x="880" y="80" text-anchor="middle" font-size="13" font-weight="600">Firestore or PostgreSQL</text>
   <text x="880" y="100" text-anchor="middle" font-size="11" fill="#5B6770">workspaces, members, roles</text>
   <text x="880" y="116" text-anchor="middle" font-size="11" fill="#5B6770">policies (every version)</text>
   <text x="880" y="132" text-anchor="middle" font-size="11" fill="#5B6770">vendors, payment history</text>
   <text x="880" y="148" text-anchor="middle" font-size="11" fill="#5B6770">cases, events, audit log</text>
   <rect x="780" y="185" width="200" height="48" rx="8" fill="#fff" stroke="#16202A"/>
-  <text x="880" y="207" text-anchor="middle" font-size="14" font-weight="600">Cloud Storage</text>
+  <text x="880" y="207" text-anchor="middle" font-size="12" font-weight="600">Cloud Storage / S3 / Azure Blob</text>
   <text x="880" y="223" text-anchor="middle" font-size="11" fill="#5B6770">uploaded files</text>
   <rect x="780" y="245" width="200" height="48" rx="8" fill="#fff" stroke="#16202A"/>
   <text x="880" y="267" text-anchor="middle" font-size="14" font-weight="600">Vertex AI · Gemini</text>
@@ -109,7 +109,7 @@ pre{background:var(--ink);color:#E8EDEF;padding:1rem 1.2rem;border-radius:8px;ov
   <text x="795" y="392" font-size="12">Public DNS (MX, DMARC)</text>
   <text x="795" y="416" font-size="12">ECB exchange rates</text>
   <text x="795" y="440" font-size="12">OpenSanctions / OFAC list</text>
-  <text x="795" y="464" font-size="12">Email's own auth headers</text>
+  <text x="795" y="464" font-size="12">IFSC directory · UN + OFAC lists</text>
   <g stroke="#5B6770" stroke-width="1.3" fill="none" stroke-dasharray="4 3">
     <path d="M720 294 H760 V412 H778" marker-end="url(#g)"/>
     <path d="M720 208 H760 V269 H778" marker-end="url(#g)"/>
@@ -220,9 +220,47 @@ pre{background:var(--ink);color:#E8EDEF;padding:1rem 1.2rem;border-radius:8px;ov
 <tr><td><code>backend/app/store.py</code></td><td>Storage in Firestore and Cloud Storage, with an in-memory version for tests</td></tr>
 <tr><td><code>backend/app/report.py</code></td><td>PDF case file</td></tr>
 <tr><td><code>backend/static/</code></td><td>The web app</td></tr>
-<tr><td><code>backend/tests/</code></td><td>18 automated tests covering the behaviours above</td></tr>
+<tr><td><code>backend/app/sqlstore.py</code>, <code>blobs.py</code></td><td>PostgreSQL and S3 / Azure / disk storage for non-Google installs</td></tr>
+<tr><td><code>backend/scripts/evaluate.py</code>, <code>datasets.py</code></td><td>The evaluation loop and the Kaggle dataset loaders</td></tr>
+<tr><td><code>backend/tests/</code></td><td>45 tests: API, security, fuzzing</td></tr>
+<tr><td><code>.github/workflows/</code>, <code>deploy/</code></td><td>The CI security loop, signed releases, Docker Compose for any cloud</td></tr>
 <tr><td><code>deploy.sh</code>, <code>Dockerfile</code></td><td>One-command deployment to Google Cloud</td></tr>
 </table>
+
+
+<h2>Runs in the customer's own cloud</h2>
+<p>Nothing has to leave the company's own account. The same container runs on any of these:</p>
+<table>
+<tr><th>Where</th><th>Database</th><th>File storage</th><th>Gemini</th></tr>
+<tr><td>Google Cloud</td><td>Firestore or Cloud SQL (PostgreSQL)</td><td>Cloud Storage</td><td>Their own Vertex AI project</td></tr>
+<tr><td>AWS</td><td>RDS / Aurora PostgreSQL</td><td>S3, encrypted with their KMS key</td><td>Their Vertex project via Workload Identity Federation (no stored keys)</td></tr>
+<tr><td>Azure</td><td>Azure Database for PostgreSQL</td><td>Blob Storage with managed identity</td><td>Same as AWS</td></tr>
+<tr><td>Own servers</td><td>PostgreSQL (Docker Compose included)</td><td>Local disk</td><td>Their Vertex project, or an API key</td></tr>
+</table>
+<p><b>About Gemini:</b> by default, Gemini is called through the customer's own Google Cloud project, so text goes only between their systems and Google. A company can instead use an API key supplied by us. If it does, its text passes through our account, so this is offered only as an opt-in. Account numbers, emails and phone numbers are masked before the language check runs.</p>
+
+<h2>Real data sources</h2>
+<table>
+<tr><th>Source</th><th>What it proves</th><th>Market</th></tr>
+<tr><td>IFSC directory (RBI data via Razorpay's open-source API)</td><td>The bank branch exists and belongs to the bank the invoice claims</td><td>India</td></tr>
+<tr><td>GSTIN check-digit algorithm</td><td>The GST number is real-looking and matches the vendor's legal entity</td><td>India</td></tr>
+<tr><td>UN Security Council + US OFAC sanctions lists (or OpenSanctions)</td><td>The payee isn't a sanctioned person or company</td><td>All</td></tr>
+<tr><td>Domain registry (RDAP) and public DNS</td><td>How old the sender's domain is and whether it is protected against spoofing</td><td>All</td></tr>
+<tr><td>ECB exchange rates</td><td>Amounts compared fairly across currencies</td><td>All</td></tr>
+<tr><td>Next: bank name-check APIs</td><td>The account holder's name, from the bank itself (India's name look-up, PayNow, DuitNow)</td><td>India, Singapore, Malaysia</td></tr>
+</table>
+<p>For testing, real corporate emails (the public Enron dataset on Kaggle) measure false alarms, and PaySim (a public simulation of transfers) provides large volumes for load testing. No public dataset of labelled vendor-payment fraud exists, so fraud examples are hand-written and will later come from customers' trial runs.</p>
+
+<h2>How the code is kept safe ("loop engineering")</h2>
+<p>Every change goes through the same loop automatically, and merges only if all of it passes:</p>
+<ol class="flow">
+  <li><b>Tests.</b> 45 automated tests, and every API test runs twice: against memory and a real SQL database (plus PostgreSQL in CI).</li>
+  <li><b>Fuzzing.</b> Property-based tests throw thousands of random and hostile inputs at the parsers and the policy engine. On its first run this found two real bugs (a CSV crash and forwarded emails being skipped), both now fixed.</li>
+  <li><b>Security scans.</b> Bandit (code), pip-audit (known-vulnerable libraries), gitleaks (leaked secrets), Trivy (container and config), and CodeQL.</li>
+  <li><b>Evaluation.</b> The full pipeline runs on labelled fraud and legitimate emails. The build fails if any fraud would be released or false alarms rise above the target.</li>
+  <li><b>Signed releases.</b> Each release ships with a software bill of materials and a Sigstore signature, so customers can verify the exact image they run.</li>
+</ol>
+<p>No software can be guaranteed breach-free. These loops find problems early, and the independent penetration test and SOC 2 audit check what the loops can't.</p>
 
 <h2>Before real money goes through it</h2>
 <p>The code is built to production standards and tested, but some steps can only happen in your Google Cloud project or with outside parties.</p>

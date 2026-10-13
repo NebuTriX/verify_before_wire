@@ -1,5 +1,5 @@
-import json
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 
 import pytest
@@ -100,7 +100,7 @@ class FakeGemini:
 @pytest.fixture
 def settings(tmp_path):
     return Settings(store_backend="memory", auth_mode="dev", seed_file=ROOT / "scripts" / "seed_data.json",
-                    demo_dir=ROOT.parent / "demo", rate_limit_per_minute=1000)
+                    demo_dir=ROOT.parent / "demo", rate_limit_per_minute=1000, demo_enabled=True)
 
 
 @pytest.fixture
@@ -108,14 +108,25 @@ def sources():
     return FakeSources()
 
 
-@pytest.fixture
-def client(settings, sources):
+@pytest.fixture(params=["memory", "sql"])
+def client(request, settings, sources, tmp_path):
+    """Every API test runs twice: in-memory store and a real SQL database (SQLite here,
+    PostgreSQL in production) through the same code path."""
     from fastapi.testclient import TestClient
 
+    from app.blobs import FileBlobs
     from app.main import app
     from app.orchestrator import Deps
-    app.state.deps = Deps(settings=settings, store=MemoryStore(), sources=sources, gemini=FakeGemini())
+    if request.param == "sql":
+        from app.sqlstore import SqlStore
+        url = os.getenv("VBW_TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{tmp_path}/vbw.db"
+        store = SqlStore(url, FileBlobs(str(tmp_path / "blobs")))
+    else:
+        store = MemoryStore()
+    app.state.deps = Deps(settings=settings, store=store, sources=sources, gemini=FakeGemini())
     with TestClient(app) as c:
+        if request.param == "sql" and os.getenv("VBW_TEST_DATABASE_URL"):
+            c.portal.call(store.purge_for_tests)   # shared PostgreSQL in CI: start each test clean
         yield c
     del app.state.deps
 

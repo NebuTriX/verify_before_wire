@@ -289,14 +289,11 @@ class MemoryStore(Store):
 
 # --------------------------------------------------------------- firestore ---
 class FirestoreStore(Store):
-    def __init__(self, s: Settings):
+    def __init__(self, s: Settings, blobs):
         from google.cloud import firestore
         self.fs = firestore
         self.db = firestore.AsyncClient(project=s.google_cloud_project or None, database=s.firestore_database)
-        self.bucket_name = s.uploads_bucket
-        if not self.bucket_name:
-            raise RuntimeError("UPLOADS_BUCKET is required with STORE_BACKEND=firestore")
-        self._bucket = None
+        self.blobs = blobs
 
     async def get(self, path):
         snap = await self.db.document(path).get()
@@ -337,19 +334,23 @@ class FirestoreStore(Store):
                 b.set(self.db.document(p), json.loads(json.dumps(d, default=str)))
             await b.commit()
 
-    def _b(self):
-        if self._bucket is None:
-            from google.cloud import storage
-            self._bucket = storage.Client().bucket(self.bucket_name)
-        return self._bucket
-
     async def put_blob(self, key, data, mime):
-        await asyncio.to_thread(self._b().blob(key).upload_from_string, data, content_type=mime)
-        return f"gs://{self.bucket_name}/{key}"
+        return await self.blobs.put(key, data, mime)
 
     async def get_blob(self, uri):
-        return await asyncio.to_thread(self._b().blob(uri.split("/", 3)[3]).download_as_bytes)
+        return await self.blobs.get(uri)
 
 
 def build_store(s: Settings) -> Store:
-    return MemoryStore() if s.store_backend == "memory" else FirestoreStore(s)
+    from .blobs import build_blobs
+    if s.store_backend == "memory":
+        return MemoryStore()
+    blobs = build_blobs(s)
+    if s.store_backend == "sql":
+        from .sqlstore import SqlStore
+        if not s.database_url:
+            raise RuntimeError("DATABASE_URL is required with STORE_BACKEND=sql")
+        return SqlStore(s.database_url, blobs)
+    if s.store_backend == "firestore":
+        return FirestoreStore(s, blobs)
+    raise RuntimeError(f"unknown STORE_BACKEND {s.store_backend!r}")

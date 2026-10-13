@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import os
 import time
 from dataclasses import dataclass
@@ -57,7 +58,7 @@ async def principal_from(request: Request) -> Principal:
         if len(parts) != 3:
             raise HTTPException(401, "Malformed API key.")
         key = await d.store.get_api_key(parts[1])
-        if not key or key["revoked"] or key["key_hash"] != hash_secret(token):
+        if not key or key["revoked"] or not hmac.compare_digest(key["key_hash"], hash_secret(token)):
             raise HTTPException(401, "API key is invalid or revoked.")
         return Principal(uid=key["id"], email=f"apikey:{key['name']}", kind="api_key",
                          api_key_tenant=key["tenant_id"], api_key_role=Role(key["role"]))
@@ -79,7 +80,7 @@ async def principal_from(request: Request) -> Principal:
         claims = await asyncio.to_thread(id_token.verify_firebase_token, token, ga_requests.Request(),
                                          s.firebase_project_id or s.google_cloud_project)
     except Exception:
-        raise HTTPException(401, "Your session expired. Sign in again.")
+        raise HTTPException(401, "Your session expired. Sign in again.") from None
     if not claims.get("email_verified", False) and not s.allow_unverified_email:
         raise HTTPException(403, "Verify your email address first.")
     p = Principal(uid=claims["sub"], email=(claims.get("email") or "").lower())

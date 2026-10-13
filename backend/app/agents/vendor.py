@@ -3,7 +3,8 @@ Fully deterministic; Gemini is never asked whether an account 'looks right'."""
 from __future__ import annotations
 
 from ..models import Evidence, Finding, Severity
-from .base import AgentContext, Emit, iban_valid, norm_account, swift_valid
+from ..sources import SourceUnavailable
+from .base import AgentContext, Emit, gstin_valid, iban_valid, ifsc_valid, norm_account, swift_valid
 
 NAME = "vendor"
 TITLE = "Vendor record"
@@ -102,3 +103,52 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
             evidence=[Evidence(source=c.source, excerpt=c.quote) for c in ctx.request.citations
                       if "bank" in c.quote.lower() or "account" in c.quote.lower()][:2],
             data_source="Payment request"))
+
+    # ---- India: GSTIN (tax ID) and IFSC (bank branch) ------------------------
+    if req.gstin:
+        g = norm_account(req.gstin)
+        if not gstin_valid(g):
+            await emit(Finding(
+                agent=NAME, code="GSTIN_INVALID", severity=Severity.high,
+                title="GST number on the invoice is not valid",
+                detail="Its format or check digit is wrong, so the invoice wasn't issued by a GST-registered entity.",
+                evidence=[Evidence(source="invoice", excerpt=req.gstin)], data_source="GSTIN check-digit algorithm"))
+        elif v and v.gstin and g != norm_account(v.gstin):
+            same_pan = g[2:12] == norm_account(v.gstin)[2:12]
+            await emit(Finding(
+                agent=NAME, code="GSTIN_MISMATCH", severity=Severity.medium if same_pan else Severity.high,
+                title="Invoice GST number differs from the vendor on file",
+                detail=("Same company (PAN matches), different state registration." if same_pan else
+                        f"The invoice was issued by a different legal entity than {v.legal_name}."),
+                evidence=[Evidence(source="invoice", excerpt=req.gstin)], data_source=SRC))
+    if req.ifsc:
+        code = norm_account(req.ifsc)
+        if not ifsc_valid(code):
+            await emit(Finding(agent=NAME, code="IFSC_INVALID", severity=Severity.high,
+                               title="IFSC code is malformed", detail=f"'{req.ifsc}' is not a valid IFSC.",
+                               evidence=[Evidence(source="request", excerpt=req.ifsc)], data_source="IFSC format"))
+        elif ctx.sources.ifsc is not None:
+            try:
+                info = await ctx.sources.ifsc.lookup(code)
+                if not info.found:
+                    await emit(Finding(
+                        agent=NAME, code="IFSC_UNKNOWN", severity=Severity.high,
+                        title="IFSC code does not exist", detail="No Indian bank branch has this code.",
+                        evidence=[Evidence(source=ctx.sources.ifsc.name, excerpt=f"{code}: not found")],
+                        data_source=ctx.sources.ifsc.name))
+                else:
+                    from rapidfuzz import fuzz
+                    claimed = req.beneficiary_bank or ""
+                    mismatch = claimed and fuzz.token_set_ratio(claimed.lower(), (info.bank or "").lower()) < 70
+                    await emit(Finding(
+                        agent=NAME, code="IFSC_BANK_MISMATCH" if mismatch else "IFSC_CONFIRMED",
+                        severity=Severity.medium if mismatch else Severity.info,
+                        title=(f"IFSC belongs to {info.bank}, not {claimed}" if mismatch
+                               else f"IFSC is {info.bank}, {info.branch}"),
+                        detail=f"Branch: {info.branch}, {info.city}.",
+                        evidence=[Evidence(source=ctx.sources.ifsc.name, excerpt=f"{code} → {info.bank}")],
+                        data_source=ctx.sources.ifsc.name))
+            except SourceUnavailable as e:
+                await emit(Finding(agent=NAME, code="IFSC_LOOKUP_UNAVAILABLE", severity=Severity.low,
+                                   title="Bank branch lookup unavailable", detail=str(e),
+                                   data_source=ctx.sources.ifsc.name))

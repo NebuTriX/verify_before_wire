@@ -1,0 +1,25 @@
+# Tag v*.*.* -> build image, attach SBOM, sign with Sigstore (keyless), push to GHCR.
+# Customers verify: cosign verify ghcr.io/<org>/verify-before-wire:<tag> --certificate-identity-regexp ... 
+name: release
+on:
+  push: { tags: ["v*.*.*"] }
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        id: build
+        with: { context: ., push: true, tags: "${{ steps.meta.outputs.image }}", provenance: true, sbom: true }
+      - uses: anchore/sbom-action@v0
+        with: { image: "${{ steps.meta.outputs.image }}", format: spdx-json, output-file: sbom.spdx.json }
+      - uses: sigstore/cosign-installer@v3
+      - run: cosign sign --yes "${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}"

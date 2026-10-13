@@ -13,6 +13,13 @@ class Settings(BaseSettings):
 
     # --- Google Cloud -----------------------------------------------------
     google_cloud_project: str = ""
+    # Gemini connection. GEMINI_MODE=vertex: the customer's own Google Cloud project (works from
+    # AWS/Azure/on-prem via Workload Identity Federation; point GOOGLE_APPLICATION_CREDENTIALS at
+    # the federation config). GEMINI_MODE=api_key: Gemini API key (e.g. a vendor-provided account).
+    gemini_mode: str = "vertex"
+    gemini_project: str = ""                     # defaults to google_cloud_project
+    gemini_api_key: str = ""
+    gemini_redact: bool = True                   # mask accounts/emails/phones for language + narrative
     # Gemini 3 preview models are served from the global endpoint only.
     gemini_location: str = "global"
     gemini_model: str = "gemini-3-flash-preview"
@@ -23,10 +30,17 @@ class Settings(BaseSettings):
     gemini_temperature: float | None = None
     gemini_seed: int | None = 7
 
-    # Storage: "firestore" in Cloud Run, "memory" for local dev and tests.
+    # Storage. STORE_BACKEND: firestore (GCP) | sql (PostgreSQL on any cloud / on-prem) | memory (tests)
     store_backend: str = "firestore"
     firestore_database: str = "(default)"
-    uploads_bucket: str = ""                    # empty = keep uploads in the case store only
+    database_url: str = ""                       # e.g. postgresql+asyncpg://user@host/db (sql backend)
+    # BLOB_BACKEND: gcs | s3 | azure | file | memory  (where uploaded files are kept)
+    blob_backend: str = "gcs"
+    uploads_bucket: str = ""                     # bucket / container name
+    blob_dir: str = "/var/lib/vbw/blobs"         # file backend
+    s3_kms_key_id: str = ""                      # optional customer-managed key on AWS
+    azure_blob_account_url: str = ""             # https://<account>.blob.core.windows.net
+    demo_enabled: bool = False                   # bundled sample scenarios + replay; off in production
 
     # --- Live external data sources --------------------------------------
     rdap_base: str = "https://rdap.org"
@@ -34,6 +48,8 @@ class Settings(BaseSettings):
     opensanctions_api_key: str = ""              # empty -> falls back to the OFAC SDN list
     opensanctions_base: str = "https://api.opensanctions.org"
     ofac_sdn_url: str = "https://www.treasury.gov/ofac/downloads/sdn.csv"
+    un_sanctions_url: str = "https://scsanctions.un.org/resources/xml/en/consolidated.xml"
+    ifsc_api_base: str = "https://ifsc.razorpay.com"
     http_timeout_s: float = 6.0
 
     # --- Business rules ---------------------------------------------------

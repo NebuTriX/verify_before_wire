@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
 from ..gemini import GeminiError
-from ..guard import UNTRUSTED_NOTE
+from ..guard import UNTRUSTED_NOTE, redact
 from ..models import Evidence, Finding, Severity
 from .base import AgentContext, Emit
 
@@ -81,6 +81,8 @@ def _texts(ctx: AgentContext) -> dict[str, str]:
         for d in ctx.docs:
             if d.label.startswith("voice_note") and d.label not in texts:
                 texts[d.label] = ctx.request.transcript
+    if ctx.settings.gemini_redact:
+        texts = {k: redact(v) for k, v in texts.items()}
     return texts
 
 

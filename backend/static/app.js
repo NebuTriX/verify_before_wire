@@ -155,15 +155,17 @@ async function renderSetup() {
   $("#pf").onchange = (e) => imp("payments", e.target.files[0]);
   $("#sample").onclick = async () => { const r = await api(T("/sample-data"), { method: "POST" }); $("#imp").innerHTML = `<p class="ok">Loaded ${r.vendors} sample vendors and ${r.payments} payments.</p>`; };
   $("#inv").onclick = async () => { try { const r = await api(T("/invites"), { method: "POST", json: { email: $("#ie").value, role: $("#ir").value } });
-    $("#invout").innerHTML = `<p class="ok">Send this link (works once, for that address, ${r.expires_in_days} days):</p><input readonly value="${esc(r.invite_link)}" onclick="this.select()">`; listMembers(); }
+    $("#invout").innerHTML = `<p class="ok">Send this link (works once, for that address, ${r.expires_in_days} days):</p><input readonly value="${esc(r.invite_link)}">`; listMembers(); }
     catch (e) { $("#invout").innerHTML = `<p class="error">${esc(e.message)}</p>`; } };
   $("#kc").onclick = async () => { try { const r = await api(T("/api-keys"), { method: "POST", json: { name: $("#kn").value } });
-    $("#kout").innerHTML = `<p class="ok">${esc(r.note)}</p><input readonly value="${esc(r.api_key)}" onclick="this.select()">`; }
+    $("#kout").innerHTML = `<p class="ok">${esc(r.note)}</p><input readonly value="${esc(r.api_key)}">`; }
     catch (e) { $("#kout").innerHTML = `<p class="error">${esc(e.message)}</p>`; } };
   const listMembers = async () => { const m = await api(T("/members"));
     $("#members").innerHTML = m.members.map((x) => `<li>${esc(x.email)} <span class="pill">${x.role}</span></li>`).join("") + m.invites.map((x) => `<li class="muted">${esc(x.email)} <span class="pill">${x.role}, invited</span></li>`).join(""); };
   listMembers();
 }
+
+document.addEventListener("focusin", (e) => { if (e.target.matches("input[readonly]")) e.target.select(); });
 
 // ---------------------------------------------------------------- checks --
 async function renderChecks() {

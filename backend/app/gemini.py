@@ -25,8 +25,15 @@ class Gemini:
         from google.genai import types
         self.types = types
         self.s = s
-        self.client = genai.Client(vertexai=True, project=s.google_cloud_project or None,
-                                   location=s.gemini_location)
+        if s.gemini_mode == "api_key":
+            if not s.gemini_api_key:
+                raise GeminiError("GEMINI_API_KEY is required with GEMINI_MODE=api_key")
+            self.client = genai.Client(api_key=s.gemini_api_key)
+        elif s.gemini_mode == "vertex":
+            self.client = genai.Client(vertexai=True, project=(s.gemini_project or s.google_cloud_project) or None,
+                                       location=s.gemini_location)
+        else:
+            raise GeminiError(f"unknown GEMINI_MODE {s.gemini_mode!r}")
 
     def text_part(self, text: str):
         return self.types.Part.from_text(text=text)

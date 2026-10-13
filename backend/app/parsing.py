@@ -2,7 +2,10 @@
 headers (From, Reply-To, Return-Path, Authentication-Results) are facts, not AI output."""
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
+import quopri
 import re
 from email import policy
 from email.parser import BytesParser
@@ -37,6 +40,10 @@ def pdf_text(data: bytes) -> str | None:
 
 class UnsupportedFile(ValueError):
     pass
+
+
+class NestedTooDeep(UnsupportedFile):
+    """Never swallowed: a whole upload is rejected if it hides content too deep."""
 
 
 def guess_mime(filename: str, declared: str | None) -> str:
@@ -91,12 +98,18 @@ def addr_domain(addr: str | None) -> str | None:
     return email.rsplit("@", 1)[1].lower() if "@" in email else None
 
 
+MAX_DEPTH, MAX_PARTS = 2, 10
+
+
 def parse_upload(filename: str, declared_mime: str | None, data: bytes,
-                 label: _Labeler) -> list[tuple[SourceDoc, bytes]]:
+                 label: _Labeler, depth: int = 0) -> list[tuple[SourceDoc, bytes]]:
+    if depth > MAX_DEPTH:
+        raise NestedTooDeep(f"{filename}: emails nested more than {MAX_DEPTH} levels deep are not accepted")
+    filename = re.sub(r"[^\w.\- ›]", "_", filename)[:200] or "upload"
     mime = guess_mime(filename, declared_mime)
     if mime != "message/rfc822":
         text = data.decode("utf-8", errors="replace") if mime == "text/plain" else None
-        if mime == "application/pdf":
+        if mime == "application/pdf" and len(data) <= 10 * 1024 * 1024:
             text = pdf_text(data)
         doc = SourceDoc(label=label(_kind_label(mime, filename)), filename=filename,
                         mime_type=mime, sha256=sha256(data), size=len(data), text=text)
@@ -115,11 +128,29 @@ def parse_upload(filename: str, declared_mime: str | None, data: bytes,
                           sha256=sha256(data), size=len(data),
                           text=f"{header_block}\n\n{text.strip()}", headers=headers)
     out = [(email_doc, data)]
-    for part in msg.iter_attachments():
+    for i, part in enumerate(msg.iter_attachments()):
+        if i >= MAX_PARTS:
+            break
         fname = part.get_filename() or "attachment"
-        payload = part.get_payload(decode=True) or b""
+        if part.get_content_type() == "message/rfc822":
+            inner = part.get_payload()
+            payload = inner[0].as_bytes() if isinstance(inner, list) and inner else b""
+            cte = str(part.get("Content-Transfer-Encoding", "")).lower()
+            try:  # forwarded emails may arrive encoded; decode so nothing hides inside
+                if cte == "base64":
+                    payload = base64.b64decode(payload, validate=False)
+                elif cte == "quoted-printable":
+                    payload = quopri.decodestring(payload)
+            except (ValueError, binascii.Error):
+                payload = b""
+            if not fname.lower().endswith(".eml"):
+                fname += ".eml"
+        else:
+            payload = part.get_payload(decode=True) or b""
         try:
-            sub = parse_upload(fname, part.get_content_type(), payload, label)
+            sub = parse_upload(fname, part.get_content_type(), payload, label, depth + 1)
+        except NestedTooDeep:
+            raise
         except UnsupportedFile:
             continue
         for doc, raw in sub:

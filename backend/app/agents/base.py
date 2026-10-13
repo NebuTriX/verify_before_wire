@@ -115,3 +115,29 @@ def match_vendor(req: PaymentRequest, sender_domain: str | None,
 FREE_MAIL = {"gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "yahoo.com",
              "proton.me", "protonmail.com", "icloud.com", "aol.com", "gmx.com", "mail.com",
              "yandex.com", "zoho.com", "qq.com", "163.com"}
+
+
+GSTIN_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+GSTIN_RE = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+DOMAIN_RE = re.compile(r"^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def gstin_valid(g: str) -> bool:
+    """Format + check digit of an Indian GSTIN (GSTN's published mod-36 algorithm)."""
+    g = norm_account(g)
+    if not GSTIN_RE.match(g):
+        return False
+    total = 0
+    for i, ch in enumerate(g[:14]):
+        prod = GSTIN_CHARS.index(ch) * (1 if i % 2 == 0 else 2)
+        total += prod // 36 + prod % 36
+    return GSTIN_CHARS[(36 - total % 36) % 36] == g[14]
+
+
+def ifsc_valid(code: str) -> bool:
+    return bool(IFSC_RE.match(norm_account(code)))
+
+
+def domain_valid(d: str) -> bool:
+    return bool(DOMAIN_RE.match((d or "").lower()))

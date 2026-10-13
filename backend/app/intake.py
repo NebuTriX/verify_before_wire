@@ -17,6 +17,7 @@ SYSTEM = """You are the intake clerk of an accounts-payable fraud checkpoint.
 You receive one payment request delivered through several inputs, each wrapped with its label.
 Extract ONE merged payment request.
 - Copy identifiers exactly (account numbers, IBAN, SWIFT/BIC, invoice numbers, amounts).
+- ifsc / gstin: Indian bank branch code and GST number if they appear; copy exactly.
 - currency: ISO-4217 code. beneficiary_country: ISO-3166 alpha-2 (infer from IBAN/SWIFT if absent).
 - transcript: verbatim transcript of any audio input, otherwise null.
 - citations: up to 8 exact quotes supporting the key fields, each with the input label.
@@ -31,6 +32,8 @@ IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}\s?[A-Z0-9]{1,4}\b"
 SWIFT_RE = re.compile(r"\b(?:SWIFT|BIC)[:\s]*([A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b", re.I)
 BENE_RE = re.compile(r"\b(?:beneficiary|account name|payee)\s*:\s*([^\n]+)", re.I)
 BANK_RE = re.compile(r"\bbank\s*:\s*([^\n]+)", re.I)
+IFSC_FIND = re.compile(r"\b[A-Z]{4}0[A-Z0-9]{6}\b")
+GSTIN_FIND = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b")
 ACCT_RE = re.compile(r"\b(?:account|a/c|acct)(?:\s*(?:no\.?|number|#))?[:\s]*([0-9][0-9\- ]{6,20}[0-9])", re.I)
 
 
@@ -60,6 +63,10 @@ def regex_fallback(docs: list[SourceDoc]) -> PaymentRequest:
         req.iban = m.group(0).replace(" ", "")
     if m := SWIFT_RE.search(text):
         req.swift_bic = m.group(1).upper()
+    if m := IFSC_FIND.search(text):
+        req.ifsc = m.group(0)
+    if m := GSTIN_FIND.search(text):
+        req.gstin = m.group(0)
     if m := BENE_RE.search(text):
         req.beneficiary_name = req.vendor_name = m.group(1).strip()
     if m := BANK_RE.search(text):

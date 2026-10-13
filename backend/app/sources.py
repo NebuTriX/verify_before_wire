@@ -167,6 +167,39 @@ class FxClient:
             raise SourceUnavailable(f"FX rate {key} unavailable: {e}") from e
 
 
+# -------------------------------------------------------------------- IFSC ----
+@dataclass
+class IfscInfo:
+    code: str
+    found: bool
+    bank: str | None = None
+    branch: str | None = None
+    city: str | None = None
+
+
+class IfscClient:
+    """Indian bank branch directory via Razorpay's open-source IFSC API (data from RBI)."""
+    name = "IFSC directory (ifsc.razorpay.com, RBI data)"
+
+    def __init__(self, s: Settings, http: httpx.AsyncClient):
+        self.base, self.http, self.cache = s.ifsc_api_base.rstrip("/"), http, _TTLCache(86400)
+
+    async def lookup(self, code: str) -> IfscInfo:
+        code = code.upper().strip()
+        if (hit := self.cache.get(code)) is not None:
+            return hit
+        try:
+            r = await self.http.get(f"{self.base}/{code}")
+        except httpx.HTTPError as e:
+            raise SourceUnavailable(f"IFSC directory unreachable: {e}") from e
+        if r.status_code == 404:
+            return self.cache.put(code, IfscInfo(code, False))
+        if r.status_code >= 400:
+            raise SourceUnavailable(f"IFSC directory HTTP {r.status_code}")
+        d = r.json()
+        return self.cache.put(code, IfscInfo(code, True, d.get("BANK"), d.get("BRANCH"), d.get("CITY")))
+
+
 # -------------------------------------------------------------- sanctions ----
 @dataclass
 class SanctionsHit:
@@ -184,11 +217,12 @@ class SanctionsClient:
     def __init__(self, s: Settings, http: httpx.AsyncClient):
         self.s, self.http = s, http
         self._sdn: list[tuple[str, str, str]] | None = None
+        self._un: list[tuple[str, str, str]] | None = None
         self._sdn_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
-        return "OpenSanctions" if self.s.opensanctions_api_key else "US Treasury OFAC SDN list"
+        return "OpenSanctions" if self.s.opensanctions_api_key else "OFAC SDN + UN Security Council lists"
 
     async def screen(self, names: list[str], country: str | None = None) -> list[SanctionsHit]:
         names = [n for n in dict.fromkeys(n.strip() for n in names if n and n.strip())]
@@ -240,15 +274,45 @@ class SanctionsClient:
             log.info("Loaded %d OFAC SDN entries", len(rows))
             return rows
 
+    async def _load_un(self) -> list[tuple[str, str, str]]:
+        """UN Security Council consolidated list (XML, parsed with defusedxml)."""
+        if self._un is not None:
+            return self._un
+        from defusedxml import ElementTree as DET
+        try:
+            r = await self.http.get(self.s.un_sanctions_url, follow_redirects=True, timeout=30)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise SourceUnavailable(f"UN sanctions list unavailable: {e}") from e
+        root = DET.fromstring(r.content)
+        rows = []
+        for kind in ("INDIVIDUAL", "ENTITY"):
+            for el in root.iter(kind):
+                ref = (el.findtext("REFERENCE_NUMBER") or "").strip()
+                parts = [el.findtext(t) for t in ("FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME")]
+                name = " ".join(p.strip() for p in parts if p and p.strip())
+                if name:
+                    rows.append((ref, name, "UN SC"))
+                for al in el.iter(f"{kind}_ALIAS"):
+                    a = (al.findtext("ALIAS_NAME") or "").strip()
+                    if a:
+                        rows.append((ref, a, "UN SC alias"))
+        self._un = rows
+        return rows
+
     async def _ofac(self, names: list[str]) -> list[SanctionsHit]:
-        sdn = await self._load_sdn()
+        sdn = list(await self._load_sdn())
+        try:
+            sdn += await self._load_un()
+        except SourceUnavailable as e:
+            log.warning("%s; screening against OFAC only", e)
         hits = []
         for n in names:
             for ent, sdn_name, program in sdn:
                 score = fuzz.token_sort_ratio(n.upper(), sdn_name.upper())
                 if score >= 92:
-                    hits.append(SanctionsHit(n, sdn_name, score / 100, f"OFAC SDN ({program})",
-                                             f"OFAC SDN ent_num {ent}"))
+                    src = program if program.startswith("UN") else f"OFAC SDN ({program})"
+                    hits.append(SanctionsHit(n, sdn_name, score / 100, src, f"{src} ref {ent}"))
         return sorted(hits, key=lambda h: -h.score)[:5]
 
 
@@ -259,11 +323,13 @@ class Sources:
     fx: FxClient
     sanctions: SanctionsClient
     http: httpx.AsyncClient
+    ifsc: IfscClient | None = None
 
     @classmethod
     def build(cls, s: Settings) -> "Sources":
         http = httpx.AsyncClient(timeout=s.http_timeout_s, headers=UA)
-        return cls(RdapClient(s, http), DnsClient(s), FxClient(s, http), SanctionsClient(s, http), http)
+        return cls(RdapClient(s, http), DnsClient(s), FxClient(s, http), SanctionsClient(s, http), http,
+                   IfscClient(s, http))
 
     async def aclose(self):
         await self.http.aclose()
