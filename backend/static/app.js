@@ -81,7 +81,11 @@ async function boot() {
   $("#nav").hidden = false;
   route();
 }
-window.addEventListener("hashchange", () => signedIn() && route());
+window.addEventListener("hashchange", () => {
+  if (!signedIn()) return;
+  if (/invite=/.test(location.hash)) return boot();   // invite opened in an already-loaded tab
+  route();
+});
 document.addEventListener("keydown", (e) => {
   if (e.shiftKey && e.key.toLowerCase() === "r" && !e.target.closest("input,textarea")) {
     S.replay = !S.replay; $("#mode").textContent = S.replay ? "recorded playback" : "live"; $("#mode").classList.toggle("replay", S.replay);
@@ -93,6 +97,7 @@ async function route() {
   const [page, arg] = h.split("/");
   try {
     if (page === "new") return renderNewWorkspace();
+    if (!S.tid) { location.hash = "#/new"; return; }
     S.ws = await api(T(""));
     const can = (p) => S.ws.my_permissions.includes(p);
     S.can = can;
@@ -129,7 +134,7 @@ async function renderNewWorkspace() {
 // ----------------------------------------------------------------- setup --
 async function renderSetup() {
   const ob = await api(T("/onboarding"));
-  view.innerHTML = `<h1>Setup</h1><ol class="steps">${ob.steps.map((s) => `<li class="${s.done ? "done" : ""}">${esc(s.title)}</li>`).join("")}</ol>
+  view.innerHTML = `<h1>Setup</h1><ol class="steps" id="steps">${ob.steps.map((s) => `<li class="${s.done ? "done" : ""}">${esc(s.title)}</li>`).join("")}</ol>
   <div class="grid2">
    <section class="card"><h2>Vendor master and payment history</h2>
     <p class="muted">Export from your ERP as CSV. Rows are checked before anything is saved.</p>
@@ -145,20 +150,22 @@ async function renderSetup() {
     <p class="muted">Call <code>POST ${location.origin}/api/t/${S.tid}/checks</code> with the payment files before releasing. Send an <code>Idempotency-Key</code> header so retries never create duplicates.</p>
     <div class="row"><input id="kn" placeholder="Key name, e.g. SAP production" aria-label="Key name"><button class="secondary" id="kc">Create API key</button></div><div id="kout"></div><ul id="keys" class="plain"></ul></section>
   </div>`;
+  const refreshSteps = async () => { const o = await api(T("/onboarding"));
+    $("#steps").innerHTML = o.steps.map((s) => `<li class="${s.done ? "done" : ""}">${esc(s.title)}</li>`).join(""); };
   const imp = async (kind, file) => {
     const fd = new FormData(); fd.append("file", file);
     try { const r = await api(T(`/import/${kind}`), { method: "POST", body: fd });
       $("#imp").innerHTML = r.error_count ? `<p class="error">${r.error_count} problem(s). ${esc(r.note)}</p><table class="mini"><tr><th>Row</th><th>Field</th><th>Problem</th></tr>${r.errors.map((e) => `<tr><td>${e.row}</td><td>${esc(e.field)}</td><td>${esc(e.message)}</td></tr>`).join("")}</table>`
-        : `<p class="ok">Imported ${r.imported} ${kind}.</p>`; } catch (e) { $("#imp").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+        : `<p class="ok">Imported ${r.imported} ${kind}.</p>`; refreshSteps(); } catch (e) { $("#imp").innerHTML = `<p class="error">${esc(e.message)}</p>`; }
   };
   $("#vf").onchange = (e) => imp("vendors", e.target.files[0]);
   $("#pf").onchange = (e) => imp("payments", e.target.files[0]);
-  $("#sample").onclick = async () => { const r = await api(T("/sample-data"), { method: "POST" }); $("#imp").innerHTML = `<p class="ok">Loaded ${r.vendors} sample vendors and ${r.payments} payments.</p>`; };
+  $("#sample").onclick = async () => { const r = await api(T("/sample-data"), { method: "POST" }); $("#imp").innerHTML = `<p class="ok">Loaded ${r.vendors} sample vendors and ${r.payments} payments.</p>`; refreshSteps(); };
   $("#inv").onclick = async () => { try { const r = await api(T("/invites"), { method: "POST", json: { email: $("#ie").value, role: $("#ir").value } });
-    $("#invout").innerHTML = `<p class="ok">Send this link (works once, for that address, ${r.expires_in_days} days):</p><input readonly value="${esc(r.invite_link)}">`; listMembers(); }
+    $("#invout").innerHTML = `<p class="ok">Send this link (works once, for that address, ${r.expires_in_days} days):</p><input readonly value="${esc(r.invite_link)}">`; listMembers(); refreshSteps(); }
     catch (e) { $("#invout").innerHTML = `<p class="error">${esc(e.message)}</p>`; } };
   $("#kc").onclick = async () => { try { const r = await api(T("/api-keys"), { method: "POST", json: { name: $("#kn").value } });
-    $("#kout").innerHTML = `<p class="ok">${esc(r.note)}</p><input readonly value="${esc(r.api_key)}">`; }
+    $("#kout").innerHTML = `<p class="ok">${esc(r.note)}</p><input readonly value="${esc(r.api_key)}">`; refreshSteps(); }
     catch (e) { $("#kout").innerHTML = `<p class="error">${esc(e.message)}</p>`; } };
   const listMembers = async () => { const m = await api(T("/members"));
     $("#members").innerHTML = m.members.map((x) => `<li>${esc(x.email)} <span class="pill">${x.role}</span></li>`).join("") + m.invites.map((x) => `<li class="muted">${esc(x.email)} <span class="pill">${x.role}, invited</span></li>`).join(""); };

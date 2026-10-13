@@ -50,7 +50,7 @@ echo "› deploying $SERVICE (Cloud Build builds the Dockerfile)"
 gcloud run deploy "$SERVICE" --source . --region "$REGION" --service-account "$SA" \
   --allow-unauthenticated --timeout 300 --cpu 1 --memory 1Gi --concurrency 40 \
   --min-instances 1 --max-instances 10 --no-cpu-throttling \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$PROJECT_ID.firebaseapp.com}" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,DEMO_ENABLED=${DEMO_ENABLED:-true},BLOB_BACKEND=gcs,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$PROJECT_ID.firebaseapp.com}" \
   "${SECRET_FLAG[@]}"
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
