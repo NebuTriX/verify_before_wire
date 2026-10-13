@@ -46,12 +46,23 @@ class Settings(BaseSettings):
     amount_ratio_high: float = 3.0
     amount_ratio_medium: float = 1.8
 
+    # --- Auth ---------------------------------------------------------------
+    auth_mode: str = "firebase"                  # firebase | dev (local only)
+    allow_dev_auth: bool = False
+    firebase_project_id: str = ""                # defaults to google_cloud_project
+    firebase_api_key: str = ""                   # public web config, served to the browser
+    firebase_auth_domain: str = ""
+    allow_unverified_email: bool = False
+    invite_days: int = 7
+    rate_limit_per_minute: int = 60              # per tenant, case creation
+
     # --- App ----------------------------------------------------------------
     max_upload_mb: int = 15
     max_files: int = 6
     demo_dir: Path = ROOT.parent / "demo"
     static_dir: Path = ROOT / "static"
     seed_file: Path = ROOT / "scripts" / "seed_data.json"
+    prompt_version: str = "2026-10-13"
     lease_seconds: int = 150
     log_level: str = "INFO"
 

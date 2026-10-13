@@ -99,18 +99,62 @@ class FakeGemini:
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(store_backend="memory", seed_file=ROOT / "scripts" / "seed_data.json",
-                    demo_dir=ROOT.parent / "demo", company_domains="acme-holdings.com")
+    return Settings(store_backend="memory", auth_mode="dev", seed_file=ROOT / "scripts" / "seed_data.json",
+                    demo_dir=ROOT.parent / "demo", rate_limit_per_minute=1000)
 
 
 @pytest.fixture
-def app_client(settings):
+def sources():
+    return FakeSources()
+
+
+@pytest.fixture
+def client(settings, sources):
     from fastapi.testclient import TestClient
 
     from app.main import app
     from app.orchestrator import Deps
-    seed = json.loads(settings.seed_file.read_text())
-    app.state.deps = Deps(settings=settings, store=MemoryStore(seed), sources=FakeSources(), gemini=FakeGemini())
+    app.state.deps = Deps(settings=settings, store=MemoryStore(), sources=sources, gemini=FakeGemini())
     with TestClient(app) as c:
         yield c
     del app.state.deps
+
+
+def H(email):
+    return {"X-Dev-User": email}
+
+
+OWNER, APPROVER, APPROVER2, ADMIN2, CLERK = ("owner@acme.com", "ap1@acme.com", "ap2@acme.com",
+                                             "risk@acme.com", "clerk@acme.com")
+
+
+def make_workspace(client, template="balanced", owner=OWNER, team=True):
+    r = client.post("/api/workspaces", headers=H(owner), json={
+        "name": "Acme Holdings", "company_domains": ["acme-holdings.com"], "base_currency": "USD",
+        "template": template})
+    assert r.status_code == 201, r.text
+    tid = r.json()["tenant_id"]
+    assert client.post(f"/api/t/{tid}/sample-data", headers=H(owner)).status_code == 200
+    if team:
+        for email, role in ((APPROVER, "approver"), (APPROVER2, "approver"), (ADMIN2, "policy_admin"),
+                            (CLERK, "clerk")):
+            link = client.post(f"/api/t/{tid}/invites", headers=H(owner),
+                               json={"email": email, "role": role}).json()["invite_link"]
+            token = link.split("#invite=")[1]
+            assert client.post("/api/invites/accept", headers=H(email), json={"token": token}).status_code == 200
+    return tid
+
+
+def run_case(client, tid, scenario, who=CLERK):
+    import json as _j
+    cid = client.post(f"/api/t/{tid}/demo/{scenario}", headers=H(who)).json()["case_id"]
+    events = []
+    with client.stream("GET", f"/api/t/{tid}/cases/{cid}/stream", headers=H(who)) as r:
+        for line in r.iter_lines():
+            if line.startswith("data:"):
+                events.append(_j.loads(line[5:]))
+    return cid, events
+
+
+def verdict_of(events):
+    return next(e for e in events if e["type"] == "verdict")["data"]

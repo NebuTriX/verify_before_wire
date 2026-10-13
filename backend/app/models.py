@@ -102,6 +102,8 @@ class Finding(BaseModel):
 
 class Verdict(BaseModel):
     decision: Decision
+    requirements: list[str] = Field(default_factory=list)
+    fired_rules: list[dict[str, Any]] = Field(default_factory=list)
     risk_score: int
     summary: str
     top_reasons: list[str]
@@ -134,8 +136,54 @@ class CaseStatus(str, Enum):
     failed = "failed"
 
 
+class Approval(BaseModel):
+    uid: str
+    email: str
+    action: Literal["release", "hold", "reject", "clear_compliance"]
+    reason: str = ""
+    at: datetime = Field(default_factory=utcnow)
+
+
+class CallbackRecord(BaseModel):
+    uid: str
+    email: str
+    contact: str
+    number: str
+    number_source: Literal["vendor_master", "company_directory", "other"]
+    outcome: Literal["confirmed", "denied", "no_answer"]
+    notes: str = ""
+    at: datetime = Field(default_factory=utcnow)
+
+
+class Workflow(BaseModel):
+    state: Literal["investigating", "awaiting_decision", "awaiting_second_approval",
+                   "released", "held", "rejected"] = "investigating"
+    requirements: list[str] = Field(default_factory=list)
+    approvals: list[Approval] = Field(default_factory=list)
+    callbacks: list[CallbackRecord] = Field(default_factory=list)
+    label: Literal["fraud", "legit"] | None = None   # confirmed outcome, feeds policy simulation
+
+
+class DecisionRecord(BaseModel):
+    """Everything needed to reproduce and defend the decision later."""
+    policy_version: int
+    policy_hash: str
+    outcome: dict[str, Any]
+    facts: dict[str, Any]
+    raw_findings: list[dict[str, Any]]          # before tenant severity overrides
+    model: str
+    prompt_version: str
+    region: str
+    input_hashes: dict[str, str]
+    decided_at: datetime = Field(default_factory=utcnow)
+
+
 class Case(BaseModel):
     id: str
+    tenant_id: str
+    created_by: str = "system"
+    idempotency_key: str | None = None
+    external_ref: str | None = None              # payment id in the customer's ERP
     status: CaseStatus = CaseStatus.queued
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
@@ -144,6 +192,8 @@ class Case(BaseModel):
     request: PaymentRequest | None = None
     findings: list[Finding] = Field(default_factory=list)
     verdict: Verdict | None = None
+    record: DecisionRecord | None = None
+    workflow: Workflow = Field(default_factory=Workflow)
     lease_until: datetime | None = None
     error: str | None = None
 

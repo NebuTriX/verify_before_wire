@@ -8,6 +8,7 @@ from email.utils import parseaddr
 
 from .gemini import Gemini, GeminiError
 from .models import PaymentRequest, SourceDoc
+from .guard import UNTRUSTED_NOTE
 from .parsing import AUDIO, DOCS
 
 log = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ Extract ONE merged payment request.
 - conflicts: every fact that differs between inputs (amount, account, payee, deadline, who is asking),
   naming both labels. Empty list if they agree.
 - claims_bank_details_changed: true only if an input says the payee's bank details changed.
-Never invent values. Use null when a field is not present."""
+Never invent values. Use null when a field is not present.
+""" + UNTRUSTED_NOTE
 
 AMOUNT_RE = re.compile(r"\b(USD|SGD|EUR|GBP|INR|JPY|AUD|HKD|MYR)\s?\$?\s?([\d,]+(?:\.\d{1,2})?)", re.I)
 IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){2,7}\s?[A-Z0-9]{1,4}\b")

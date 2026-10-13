@@ -3,6 +3,7 @@
 #   PROJECT_ID=my-project REGION=asia-southeast1 ./deploy.sh
 set -euo pipefail
 : "${PROJECT_ID:?set PROJECT_ID}"
+: "${FIREBASE_API_KEY:?set FIREBASE_API_KEY (Firebase console > Project settings > Web app config)}"
 REGION="${REGION:-asia-southeast1}"
 SERVICE="${SERVICE:-verify-before-wire}"
 SA="vbw-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -11,7 +12,8 @@ BUCKET="${BUCKET:-${PROJECT_ID}-vbw-uploads}"
 gcloud config set project "$PROJECT_ID" >/dev/null
 echo "› enabling APIs"
 gcloud services enable run.googleapis.com aiplatform.googleapis.com firestore.googleapis.com \
-  storage.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
+  storage.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com \
+  identitytoolkit.googleapis.com firebase.googleapis.com
 
 echo "› Firestore (Native mode)"
 gcloud firestore databases describe --database="(default)" >/dev/null 2>&1 || \
@@ -47,8 +49,8 @@ fi
 echo "› deploying $SERVICE (Cloud Build builds the Dockerfile)"
 gcloud run deploy "$SERVICE" --source . --region "$REGION" --service-account "$SA" \
   --allow-unauthenticated --timeout 300 --cpu 1 --memory 1Gi --concurrency 40 \
-  --min-instances 1 --max-instances 4 --no-cpu-throttling \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},COMPANY_DOMAINS=${COMPANY_DOMAINS:-acme-holdings.com}" \
+  --min-instances 1 --max-instances 10 --no-cpu-throttling \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$PROJECT_ID.firebaseapp.com}" \
   "${SECRET_FLAG[@]}"
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')

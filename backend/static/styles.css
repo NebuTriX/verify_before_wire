@@ -77,3 +77,44 @@ a.secondary { display: inline-block; color: var(--ink); border: 1.5px solid var(
 .mode.replay { color: var(--callback); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 .link { background: none; border: 0; color: var(--steel); font: 500 .8rem var(--sans); padding: 0; }
+.bar { justify-content: space-between; align-items: center; }
+.nav { display: flex; gap: 1.1rem; align-items: center; flex-wrap: wrap; }
+.nav a { color: var(--ink); text-decoration: none; padding: .2rem 0; border-bottom: 2px solid transparent; }
+.nav a.on { border-color: var(--steel); }
+.nav select, input, select, textarea { font: inherit; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 4px; background: var(--sheet); color: var(--ink); width: 100%; }
+.nav select { width: auto; }
+.who { display: flex; gap: .8rem; align-items: center; color: var(--muted); font-size: .85rem; }
+.view { max-width: 1440px; margin: 0 auto; padding: 1.75rem 2rem 3rem; }
+h1 { font: 600 1.5rem/1.2 var(--sans); margin: 0 0 .6rem; }
+label { display: grid; gap: .25rem; margin: .7rem 0; font-size: .9rem; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 1rem 0; padding: .6rem .9rem; }
+.choice { grid-template-columns: auto 1fr; align-items: start; gap: .6rem; }
+.choice input { width: auto; margin-top: .3rem; }
+.card { background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+.narrow { max-width: 560px; margin: 2rem auto; }
+.row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: end; }
+.row > * { flex: 1; min-width: 140px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }
+.grid-side { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 2rem; }
+@media (max-width: 900px) { .grid-side { grid-template-columns: 1fr; } .view { padding: 1.25rem; } }
+.muted { color: var(--muted); } .small { font-size: .84rem; } .gap { margin-top: 1.5rem; }
+.error { color: var(--hold); } .ok { color: var(--release); } .bad { color: var(--hold); }
+.plain { list-style: none; padding: 0; margin: .4rem 0; } .plain li { padding: .25rem 0; border-bottom: 1px solid var(--line); }
+.pill { font-size: .75rem; background: #E4EAEC; border-radius: 99px; padding: .05rem .5rem; color: var(--muted); }
+.steps { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; list-style: none; counter-reset: s; margin: 0 0 1.25rem; }
+.steps li { counter-increment: s; background: var(--sheet); border: 1px solid var(--line); border-radius: 99px; padding: .3rem .8rem; font-size: .85rem; }
+.steps li::before { content: counter(s) ". "; color: var(--muted); }
+.steps li.done { border-color: var(--release); color: var(--release); } .steps li.done::before { content: "✓ "; }
+table.list, table.mini { width: 100%; border-collapse: collapse; background: var(--sheet); font-size: .88rem; }
+table.list th, table.list td, table.mini th, table.mini td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+table.list tr[data-id] { cursor: pointer; } table.list tr[data-id]:hover { background: #F3F7FA; }
+.tag { font: 600 .78rem var(--cond); padding: .1rem .45rem; border-radius: 3px; border: 1.5px solid currentColor; }
+.tag.HOLD { color: var(--hold); } .tag.CALLBACK { color: var(--callback); } .tag.RELEASE { color: var(--release); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: .3rem 1rem; font-size: .9rem; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; } .mono { font-family: ui-monospace, monospace; font-size: .8rem; }
+textarea { font-family: ui-monospace, monospace; font-size: .8rem; }
+.danger { background: none; border: 1.5px solid var(--hold); color: var(--hold); border-radius: 4px; padding: .5rem .9rem; font: 600 .95rem var(--sans); cursor: pointer; }
+.primary { width: auto; } button.secondary { background: none; border: 1.5px solid var(--ink); border-radius: 4px; padding: .5rem .9rem; color: var(--ink); }
+details { margin: .8rem 0; } summary { cursor: pointer; font-weight: 600; }
+.verdict { grid-template-columns: auto 1fr; }
+code { font-size: .82rem; background: #E8EDEF; padding: .05rem .3rem; border-radius: 3px; }

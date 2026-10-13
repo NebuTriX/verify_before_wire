@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
 from ..gemini import GeminiError
+from ..guard import UNTRUSTED_NOTE
 from ..models import Evidence, Finding, Severity
 from .base import AgentContext, Emit
 
@@ -43,7 +44,8 @@ Rules:
 - Only report what is present. Routine invoices often contain polite deadlines; do not flag
   ordinary payment terms ("due in 30 days") as urgency.
 - Do not judge whether a voice is synthetic; judge only the words.
-- Return at most 6 signals, the strongest first."""
+- Return at most 6 signals, the strongest first.
+""" + UNTRUSTED_NOTE
 
 FLAG = {"high": Severity.high, "medium": Severity.medium, "low": Severity.low}
 TITLES = {

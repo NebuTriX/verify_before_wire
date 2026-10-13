@@ -81,6 +81,21 @@ def build_pdf(case: Case, events: list[Event]) -> bytes:
     if v:
         story += [Paragraph("Recommended actions", h2),
                   Paragraph("<br/>".join(f"• {_esc(a)}" for a in v.recommended_actions), body)]
+    if case.record:
+        rec = case.record
+        fired = "<br/>".join(f"• {_esc(r['description'])}" for r in case.verdict.fired_rules) if v else ""
+        story += [Paragraph("Decision basis", h2),
+                  _kv([["Policy", f"version {rec.policy_version} · {rec.policy_hash[:16]}…"],
+                       ["Rules applied", fired or "none beyond the score thresholds"],
+                       ["Requirements", _esc(", ".join(v.requirements) if v and v.requirements else "none")],
+                       ["Model", f"{_esc(rec.model)} · prompts {_esc(rec.prompt_version)}"],
+                       ["Data region", _esc(rec.region)]], body)]
+    wf = case.workflow
+    if wf.callbacks or wf.approvals:
+        rows = [[f"{cb.at:%d %b %H:%M}", f"Callback by {_esc(cb.email)} to {_esc(cb.contact)} on {_esc(cb.number)} "
+                 f"({cb.number_source.replace('_', ' ')}): <b>{cb.outcome}</b> {_esc(cb.notes)}"] for cb in wf.callbacks]
+        rows += [[f"{ap.at:%d %b %H:%M}", f"<b>{ap.action}</b> by {_esc(ap.email)} {_esc(ap.reason)}"] for ap in wf.approvals]
+        story += [Paragraph(f"Human decisions — state: {wf.state}", h2), _kv(rows, body)]
     story += [Paragraph("Inputs (SHA-256)", h2),
               _kv([[d.label, f"{_esc(d.filename)}<br/><font size='6.5'>{d.sha256}</font>"] for d in case.sources], body),
               Paragraph("Audit trail", h2),

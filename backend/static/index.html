@@ -5,63 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Verify-Before-Wire</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
 <header class="bar">
   <div class="brand"><span class="mark" aria-hidden="true"></span>Verify-Before-Wire</div>
-  <p class="tag">Every outgoing payment is checked against the facts before it leaves.</p>
+  <nav id="nav" class="nav" hidden>
+    <select id="ws-switch" aria-label="Workspace"></select>
+    <a href="#/checks">Checks</a><a href="#/setup">Setup</a><a href="#/policy">Policy</a><a href="#/audit">Audit log</a>
+  </nav>
+  <div class="who"><span id="who"></span><button class="link" id="signout" hidden>Sign out</button></div>
 </header>
-
-<main class="layout">
-  <section class="intake" aria-labelledby="intake-h">
-    <h2 id="intake-h">Payment request</h2>
-    <label class="drop" id="drop" tabindex="0">
-      <input type="file" id="file" multiple accept=".eml,.txt,.pdf,.png,.jpg,.jpeg,.mp3,.wav,.m4a,.ogg,.webm">
-      <strong>Drop the request here</strong>
-      <span>Email (.eml), voice note, invoice PDF or screenshot. Up to 6 files.</span>
-    </label>
-    <ul class="picked" id="picked"></ul>
-    <button class="primary" id="go" disabled>Investigate payment</button>
-
-    <div class="demos">
-      <h3>Or run a sample case</h3>
-      <div id="demo-list" class="demo-list"></div>
-    </div>
-
-    <div class="slip" id="slip" hidden>
-      <h3>What the request asks for</h3>
-      <dl id="slip-fields"></dl>
-      <p class="notes" id="slip-notes"></p>
-    </div>
-  </section>
-
-  <section class="board" aria-labelledby="board-h">
-    <div class="board-head">
-      <h2 id="board-h">Investigation</h2>
-      <p class="status" id="status" role="status">Waiting for a payment request.</p>
-    </div>
-
-    <div class="verdict" id="verdict" hidden>
-      <div class="stamp" id="stamp"></div>
-      <div class="verdict-body">
-        <p class="score"><span id="score"></span> risk score</p>
-        <p class="summary" id="summary"></p>
-        <div class="callback" id="callback"></div>
-        <a class="secondary" id="pdf" href="#">Download case file (PDF)</a>
-      </div>
-    </div>
-
-    <div class="lanes" id="lanes"></div>
-  </section>
-</main>
-
+<main id="view" class="view"></main>
 <footer class="foot">
-  <span>Decision support for accounts payable. The approver makes the final call.</span>
-  <span class="mode" id="mode" title="Shift+R toggles recorded playback">live</span>
+  <span>Decision support for accounts payable. People make the final call.</span>
+  <span class="mode" id="mode" title="Shift+R toggles recorded playback for sample cases">live</span>
 </footer>
-<script src="/assets/app.js" defer></script>
+<script type="module" src="/assets/app.js"></script>
 </body>
 </html>

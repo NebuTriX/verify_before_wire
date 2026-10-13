@@ -5,82 +5,45 @@ Drop in an email, voice note or invoice; five agents check it against live data 
 vendor master, and return **RELEASE**, **CALL BACK** or **HOLD** with cited evidence and an
 audit PDF. We verify the request, not the voice.
 
-## Quick start (local, no cloud needed)
+Read **docs/how-it-works.html** first: it explains the whole system in plain words with an architecture diagram.
+
+## Quick start (local)
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-python scripts/make_demo.py          # demo emails, invoices, vendor master
-python -m pytest -q                  # 11 tests, uses stand-ins for Gemini and live sources
-STORE_BACKEND=memory uvicorn app.main:app --reload --port 8080
+python scripts/make_demo.py               # sample vendors, payments, scenario files
+python -m pytest -q                       # 18 tests
+STORE_BACKEND=memory AUTH_MODE=dev uvicorn app.main:app --reload --port 8080
 ```
-Open http://localhost:8080. Without Google credentials, Gemini is off and intake falls
-back to pattern extraction; live RDAP/DNS/FX/OFAC lookups still run if you have internet.
-To use Gemini locally: `gcloud auth application-default login` and set
-`GOOGLE_CLOUD_PROJECT` in `backend/.env` (see `.env.example`).
+Open http://localhost:8080, sign in with any email (development sign-in), create a workspace,
+click "Load sample data", then run a sample case. Gemini is used when `GOOGLE_CLOUD_PROJECT` is set
+and you've run `gcloud auth application-default login`; otherwise intake falls back to pattern matching.
 
-## Deploy to Google Cloud
+## Deploy
+
+1. Create a GCP project with billing. Add Firebase to it (console.firebase.google.com), register a web app,
+   and enable the Google and Email sign-in providers. For enterprise SSO, enable Identity Platform SAML/OIDC.
+2. Run:
+```bash
+PROJECT_ID=your-project FIREBASE_API_KEY=<web api key> REGION=asia-southeast1 ./deploy.sh
+```
+3. Add the Cloud Run URL's domain to Firebase Auth → Settings → Authorized domains.
+4. Sign in, create your workspace, import data or load the sample, invite an approver.
+5. Optional replay fail-safe: create an analyst API key, then
+   `python backend/scripts/record_replays.py <url> <workspace-id> <api-key>` and redeploy.
+
+## Integration API (for ERP / treasury systems)
 
 ```bash
-PROJECT_ID=your-project REGION=asia-southeast1 ./deploy.sh
-cd backend && GOOGLE_CLOUD_PROJECT=your-project python scripts/seed_firestore.py
+curl -X POST "$URL/api/t/$WORKSPACE/checks" \
+  -H "Authorization: Bearer $VBW_API_KEY" -H "Idempotency-Key: payment-48213" \
+  -F "files=@request.eml" -F "external_ref=PAY-48213"
 ```
-`deploy.sh` enables APIs, creates Firestore, an uploads bucket (7-day lifecycle), a
-least-privilege service account, optional Secret Manager entry for `OPENSANCTIONS_API_KEY`,
-and deploys one Cloud Run service that serves both the API and the UI.
-
-## Architecture
-
-```
-Browser ── POST /api/cases (files) ──────────────► Cloud Run (FastAPI)
-        ◄─ GET /api/cases/{id}/stream (SSE) ─────  │
-                                                   ├─ intake: Gemini 3 Flash on Vertex AI
-                                                   │   (email text, PDF, image, audio natively)
-                                                   ├─ 5 agents in parallel (asyncio)
-                                                   │   vendor · domain · history · sanctions · language
-                                                   ├─ verdict: deterministic rules + Gemini narrative
-                                                   ├─ Firestore: cases, events, vendors, payments
-                                                   └─ Cloud Storage: uploaded inputs
-Live sources: RDAP (rdap.org) · public DNS · ECB rates (Frankfurter) · OpenSanctions or OFAC SDN
-```
-
-The stream handler that first claims a case runs it (Firestore transaction + lease); any
-other viewer tails the persisted events, so streaming works across Cloud Run instances
-and survives reconnects (`Last-Event-ID`).
-
-## API
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/api/cases` | multipart `files` (≤6, ≤15 MB each) → `{case_id}` |
-| GET | `/api/cases/{id}/stream` | SSE events; `?replay=1` plays the recorded run |
-| GET | `/api/cases/{id}` | case state |
-| GET | `/api/cases/{id}/report.pdf` | audit case file (`report.html` fallback) |
-| GET | `/api/cases/{id}/export` | recording format for replays |
-| GET/POST | `/api/demo`, `/api/demo/{scenario}` | list / run bundled scenarios |
-| GET | `/api/vendors`, `/healthz` | vendor master, health |
-
-Events: `case.started`, `intake.started`, `intake.completed`, `agent.started`, `finding`,
-`agent.completed`, `agent.failed`, `verdict`, `case.completed`, `case.failed`.
-
-## Demo fail-safe
-
-After deploying, record each scenario once and redeploy so recordings ship in the image:
-```bash
-python backend/scripts/record_replays.py https://<your-service-url>
-./deploy.sh
-```
-In the UI press **Shift+R** (footer shows "recorded playback") or open `/?replay=1`.
+Returns the full case with the `verdict` (decision, score, requirements, rules applied). The ERP should
+release funds only after the case's `workflow.state` becomes `released`.
 
 ## Configuration
 
-All settings in `backend/app/config.py`, overridable by env var (upper case).
-Key ones: `GEMINI_MODEL` (default `gemini-3-flash-preview`, global endpoint),
-`COMPANY_DOMAINS`, `OPENSANCTIONS_API_KEY`, `BASE_CURRENCY`, `BUSINESS_TIMEZONE`.
-For a more striking demo, regenerate data with a domain you registered:
-`FRAUD_DOMAIN=your-lookalike.com python scripts/make_demo.py`.
-
-## Not production yet
-
-No user auth (add IAP or Firebase Auth before real use), synthetic vendor master,
-and no rate limiting. Decision support only: the approver makes the final call.
+Platform settings are environment variables (see `backend/app/config.py`). Company-level settings,
+policies and data are managed by each workspace in the app itself.
