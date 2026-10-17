@@ -16,7 +16,7 @@ jobs:
         with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
       - id: meta
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         id: build
         with: { context: ., push: true, tags: "${{ steps.meta.outputs.image }}", provenance: true, sbom: true }
       - uses: anchore/sbom-action@v0
