@@ -53,7 +53,7 @@ jobs:
       - name: Known-vulnerable dependencies (pip-audit)
         run: pip-audit -r backend/requirements.txt
       - name: Leaked secrets (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
       - name: Filesystem + IaC scan (Trivy)
         uses: aquasecurity/trivy-action@0.28.0
