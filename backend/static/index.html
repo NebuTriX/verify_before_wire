@@ -4,24 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Verify-Before-Wire</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
-<header class="bar">
-  <div class="brand"><span class="mark" aria-hidden="true"></span>Verify-Before-Wire</div>
-  <nav id="nav" class="nav" hidden>
-    <select id="ws-switch" aria-label="Workspace"></select>
-    <a href="#/checks">Checks</a><a href="#/setup">Setup</a><a href="#/policy">Policy</a><a href="#/audit">Audit log</a>
-  </nav>
-  <div class="who"><span id="who"></span><button class="link" id="signout" hidden>Sign out</button></div>
-</header>
-<main id="view" class="view"></main>
-<footer class="foot">
-  <span>Decision support for accounts payable. People make the final call.</span>
-  <span class="mode" id="mode" title="Shift+R toggles recorded playback for sample cases">live</span>
-</footer>
+<div class="shell" id="shell">
+  <aside class="side" id="side" hidden>
+    <div class="brand"><span class="mark" aria-hidden="true"></span>Verify-Before-Wire</div>
+    <label class="ws"><span class="sr">Workspace</span><select id="ws-switch"></select></label>
+    <nav class="nav" aria-label="Main">
+      <a href="#/checks" data-page="checks">Payment checks</a>
+      <a href="#/setup" data-page="setup">Setup</a>
+      <a href="#/policy" data-page="policy">Policy</a>
+      <a href="#/audit" data-page="audit">Audit log</a>
+    </nav>
+    <div class="me"><span id="who"></span><button class="btn ghost sm" id="signout">Sign out</button></div>
+    <span class="mode" id="mode" title="Shift+R toggles recorded playback for sample cases"></span>
+  </aside>
+  <main id="view" class="view"></main>
+</div>
 <script type="module" src="/assets/app.js"></script>
 </body>
 </html>
