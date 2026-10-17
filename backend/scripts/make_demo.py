@@ -174,7 +174,7 @@ def main():
     scenarios = [
         {"id": "ceo-fraud", "title": "CFO voice note + email, SGD 480k",
          "description": "Deepfake-style CFO request to a new Hong Kong account before 5pm.",
-         "files": ["ceo_fraud.eml", "ceo_voice_note.mp3", "ceo_voice_note.transcript.txt"],
+         "files": ["ceo_fraud.eml", "ceo_voice_note.wav", "ceo_voice_note.transcript.txt"],
          "expected": "HOLD"},
         {"id": "legit-invoice", "title": "Routine Lion City invoice, SGD 78.4k",
          "description": "Known vendor, account on file, normal amount.",
