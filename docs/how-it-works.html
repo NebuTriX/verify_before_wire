@@ -254,7 +254,7 @@ pre{background:var(--ink);color:#E8EDEF;padding:1rem 1.2rem;border-radius:8px;ov
 <h2>How the code is kept safe ("loop engineering")</h2>
 <p>Every change goes through the same loop automatically, and merges only if all of it passes:</p>
 <ol class="flow">
-  <li><b>Tests.</b> 45 automated tests, and every API test runs twice: against memory and a real SQL database (plus PostgreSQL in CI).</li>
+  <li><b>Tests.</b> 50 automated tests, and every API test runs twice: against memory and a real SQL database (plus PostgreSQL in CI).</li>
   <li><b>Fuzzing.</b> Property-based tests throw thousands of random and hostile inputs at the parsers and the policy engine. On its first run this found two real bugs (a CSV crash and forwarded emails being skipped), both now fixed.</li>
   <li><b>Security scans.</b> Bandit (code), pip-audit (known-vulnerable libraries), gitleaks (leaked secrets), Trivy (container and config), and CodeQL.</li>
   <li><b>Evaluation.</b> The full pipeline runs on labelled fraud and legitimate emails. The build fails if any fraud would be released or false alarms rise above the target.</li>

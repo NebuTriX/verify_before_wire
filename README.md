@@ -11,14 +11,36 @@ Read **docs/how-it-works.html** first: it explains the whole system in plain wor
 
 ```bash
 cd backend
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 python scripts/make_demo.py               # sample vendors, payments, scenario files
-python -m pytest -q                       # 18 tests
-STORE_BACKEND=memory AUTH_MODE=dev uvicorn app.main:app --reload --port 8080
+python -m pytest -q                       # 50 tests
 ```
-Open http://localhost:8080, sign in with any email (development sign-in), create a workspace,
-click "Load sample data", then run a sample case. Gemini is used when `GOOGLE_CLOUD_PROJECT` is set
-and you've run `gcloud auth application-default login`; otherwise intake falls back to pattern matching.
+Create `backend/.env` (it is gitignored) for local development:
+```ini
+STORE_BACKEND=memory
+BLOB_BACKEND=memory
+AUTH_MODE=dev
+ALLOW_DEV_AUTH=true
+DEMO_ENABLED=true
+# Gemini: either an API key from https://aistudio.google.com/apikey ...
+GEMINI_MODE=api_key
+GEMINI_API_KEY=
+# ... or your Google Cloud project (after `gcloud auth application-default login`):
+# GEMINI_MODE=vertex
+# GOOGLE_CLOUD_PROJECT=your-project
+```
+Then run `uvicorn app.main:app --reload --port 8080` from `backend/`, open http://localhost:8080,
+sign in with any email (development sign-in), create a workspace, click "Use sample data" and run a
+sample case. Data is kept in memory, so a restart starts empty.
+
+Without Gemini (or when its quota runs out) the app keeps working: intake and the language check fall
+back to pattern matching and the case page says so. The decision itself never depends on Gemini.
+The Gemini free tier allows only about 20 requests a day (roughly 6 cases), so turn on billing before a demo.
+
+On Windows, keep the project outside OneDrive, and remove network paths such as `\\wsl.localhost\...`
+from `PATH`: the first PDF after each start otherwise takes over a minute, because the PDF library
+searches every `PATH` entry for an optional helper.
 
 ## Deploy
 
@@ -32,6 +54,8 @@ PROJECT_ID=your-project FIREBASE_API_KEY=<web api key> REGION=asia-southeast1 ./
 4. Sign in, create your workspace, import data or load the sample, invite an approver.
 5. Optional replay fail-safe: create an analyst API key, then
    `python backend/scripts/record_replays.py <url> <workspace-id> <api-key>` and redeploy.
+   Record while Gemini is working (not over quota), or the recordings will show the pattern fallback.
+   During a demo, Shift+R toggles recorded playback for the sample cases.
 
 ## Run on AWS, Azure or your own servers
 
@@ -44,7 +68,7 @@ or an API key (`GEMINI_MODE=api_key`).
 
 ```bash
 cd backend
-python -m pytest -q                         # 45 tests: API on memory + SQL, security, fuzzing
+python -m pytest -q                         # 50 tests: API on memory + SQL, security, fuzzing
 ruff check app scripts tests && bandit -r app -ll && pip-audit -r requirements.txt
 python scripts/datasets.py enron --limit 500 # optional: real legitimate emails from Kaggle
 python scripts/evaluate.py                   # fails if fraud slips through or false alarms rise
