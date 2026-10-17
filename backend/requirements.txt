@@ -15,7 +15,7 @@ email-validator==2.3.0
 sqlalchemy[asyncio]==2.1.1
 asyncpg==0.31.0
 aiosqlite==0.22.1
-boto3==1.43.104
+boto3==1.43.113
 azure-storage-blob==12.30.3
 azure-identity==1.25.3
 defusedxml==0.7.1
