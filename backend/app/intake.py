@@ -95,25 +95,29 @@ def apply_header_facts(req: PaymentRequest, docs: list[SourceDoc]) -> PaymentReq
     return req
 
 
+PATTERN_NOTE = "fields were read with pattern matching, so check them against the originals"
+
+
 async def extract(gemini: Gemini | None, docs: list[SourceDoc], blobs: dict[str, bytes]
                   ) -> tuple[PaymentRequest, list[str]]:
-    """Returns (request, notes). Notes describe any fallback taken, for the audit log."""
+    """Returns (request, notes). Notes are short, user-facing descriptions of any fallback taken
+    (they are shown on the case page and kept in the audit trail)."""
     notes: list[str] = []
     if gemini is None:
-        notes.append("Gemini disabled: used pattern extraction")
+        notes.append(f"AI reading is off on this installation; {PATTERN_NOTE}.")
         return apply_header_facts(regex_fallback(docs), docs), notes
     has_audio = any(d.mime_type in AUDIO for d in docs)
     try:
         req = await gemini.json(PaymentRequest, SYSTEM, _parts(gemini, docs, blobs, True))
     except GeminiError as e:
-        if not has_audio:
-            notes.append(f"Gemini intake failed ({e}); used pattern extraction")
+        if not has_audio or str(e) == "quota used up":   # a second try can't succeed
+            notes.append(f"AI reading unavailable ({e}); {PATTERN_NOTE}.")
             return apply_header_facts(regex_fallback(docs), docs), notes
-        notes.append(f"Audio processing failed ({e}); retried with transcript text")
+        notes.append(f"The voice note couldn't be processed ({e}); the transcript was used instead.")
         try:
             req = await gemini.json(PaymentRequest, SYSTEM, _parts(gemini, docs, blobs, False))
         except GeminiError as e2:
-            notes.append(f"Gemini intake failed ({e2}); used pattern extraction")
+            notes.append(f"AI reading unavailable ({e2}); {PATTERN_NOTE}.")
             req = regex_fallback(docs)
     if has_audio and not req.transcript:
         t = next((d.text for d in docs if d.label.startswith("transcript") and d.text), None)

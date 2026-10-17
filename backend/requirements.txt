@@ -19,3 +19,4 @@ boto3==1.43.104
 azure-storage-blob==12.30.3
 azure-identity==1.25.3
 defusedxml==0.7.1
+tzdata==2026.5

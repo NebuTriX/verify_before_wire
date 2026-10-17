@@ -56,7 +56,7 @@ def template(o: Outcome, top: list[Finding], req: PaymentRequest, vendor: Vendor
 async def narrate(o: Outcome, findings: list[Finding], req: PaymentRequest, vendor: Vendor | None,
                   gemini: Gemini | None) -> Verdict:
     flagged = sorted([f for f in findings if f.severity != Severity.info], key=lambda f: -f.points)
-    n = template(o, flagged, req, vendor)
+    n, by = template(o, flagged, req, vendor), "template"
     if gemini:
         facts = (f"Decision: {o.decision.value}\nRisk score: {o.score}/100\n"
                  f"Requirements: {', '.join(o.requirements) or 'none'}\n"
@@ -67,7 +67,7 @@ async def narrate(o: Outcome, findings: list[Finding], req: PaymentRequest, vend
                  f"{vendor.callback_contact + ' ' + vendor.callback_phone if vendor else 'company directory'}\n"
                  "Findings:\n" + ("\n".join(f"- [{f.severity.value}] {f.title}: {f.detail}" for f in flagged[:10]) or "- none"))
         try:
-            n = await gemini.json(Narrative, SYSTEM, [gemini.text_part(facts)])
+            n, by = await gemini.json(Narrative, SYSTEM, [gemini.text_part(facts)]), "gemini"
         except GeminiError as e:
             log.warning("verdict narrative falling back to template: %s", e)
     return Verdict(decision=o.decision, risk_score=o.score, summary=n.summary,
@@ -77,4 +77,8 @@ async def narrate(o: Outcome, findings: list[Finding], req: PaymentRequest, vend
                    callback_script=n.callback_script,
                    callback_number=vendor.callback_phone if vendor else None,
                    callback_contact=vendor.callback_contact if vendor else None,
-                   recommended_actions=n.recommended_actions)
+                   recommended_actions=n.recommended_actions, narrative_by=by,
+                   explain={"score": o.score, "base_score": o.base_score, "thresholds": o.thresholds,
+                            "contributions": o.contributions, "path": o.path,
+                            "rule_points": [{"label": r.description, "points": r.add_points}
+                                            for r in o.fired_rules if r.add_points]})

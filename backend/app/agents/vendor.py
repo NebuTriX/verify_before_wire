@@ -8,7 +8,7 @@ from .base import AgentContext, Emit, gstin_valid, iban_valid, ifsc_valid, norm_
 
 NAME = "vendor"
 TITLE = "Vendor record"
-SRC = "Vendor master (Firestore)"
+SRC = "Your vendor list"
 
 
 async def run(ctx: AgentContext, emit: Emit) -> None:

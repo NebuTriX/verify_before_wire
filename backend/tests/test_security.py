@@ -71,4 +71,4 @@ def test_unauthenticated_requests_rejected(client):
 
 def test_demo_disabled_by_default():
     from app.config import Settings
-    assert Settings().demo_enabled is False
+    assert Settings(_env_file=None).demo_enabled is False   # the code default, not a developer's .env

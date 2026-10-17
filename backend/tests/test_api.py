@@ -49,6 +49,20 @@ def test_tenant_isolation(client):
     assert client.get(f"/api/t/{b}/cases/{cid}", headers=H("b@b.com")).status_code == 404
 
 
+def test_case_sources_served_safely(client):
+    tid = make_workspace(client)
+    cid, ev = run_case(client, tid, "ceo-fraud")
+    src = lambda label, who=CLERK: client.get(f"/api/t/{tid}/cases/{cid}/sources/{label}", headers=H(who))
+    r = src("voice_note")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("audio/")
+    assert r.headers["content-security-policy"].startswith("sandbox")       # route's own CSP survives
+    assert src("email").status_code == 415                                  # emails are shown as parsed text only
+    assert src("nope").status_code == 404
+    assert src("voice_note", who="outsider@x.com").status_code in (403, 404)
+    lookalike = next(e["data"] for e in ev if e["type"] == "finding" and e["data"]["code"] == "LOOKALIKE_DOMAIN")
+    assert lookalike["meta"] == {"domain": "acme-hold1ngs.com", "imitates": "acme-holdings.com"}
+
+
 def test_maker_checker_release_flow(client):
     tid = make_workspace(client)
     cid, ev = run_case(client, tid, "ceo-fraud", who=APPROVER)

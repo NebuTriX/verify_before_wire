@@ -96,6 +96,7 @@ class Finding(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     data_source: str                 # where the fact came from, e.g. "RDAP (rdap.org)"
     points: int = 0
+    meta: dict[str, Any] = Field(default_factory=dict)   # structured detail for display, e.g. both domains
 
     def model_post_init(self, _: Any) -> None:
         if not self.points:
@@ -113,6 +114,8 @@ class Verdict(BaseModel):
     callback_number: str | None = None
     callback_contact: str | None = None
     recommended_actions: list[str]
+    narrative_by: Literal["gemini", "template"] = "template"   # who wrote summary + script (never the decision)
+    explain: dict[str, Any] = Field(default_factory=dict)    # score build-up, thresholds, decision path (for display)
 
 
 # ------------------------------------------------------------------ events ---

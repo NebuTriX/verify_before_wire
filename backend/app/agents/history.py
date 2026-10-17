@@ -12,7 +12,7 @@ from .base import AgentContext, Emit, norm_account
 
 NAME = "history"
 TITLE = "Payment history"
-SRC = "Payment history (Firestore)"
+SRC = "Your payment history"
 
 
 async def run(ctx: AgentContext, emit: Emit, now: datetime | None = None) -> None:

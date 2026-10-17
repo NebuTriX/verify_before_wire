@@ -210,19 +210,34 @@ class SanctionsHit:
     ref: str
 
 
+SDN_WAIT_S = 25   # a case waits this long for an in-flight OFAC download, then reports "unavailable"
+UN_WAIT_S = 10    # ...and this long for the UN list (its server is slow), then screens OFAC only
+
+
 class SanctionsClient:
     """OpenSanctions /match when an API key is configured, otherwise the US Treasury
-    OFAC SDN list downloaded once per instance and matched with rapidfuzz."""
+    OFAC SDN list (+ UN list) downloaded once per instance and matched with rapidfuzz.
+    Each list downloads in one shared background task, so a case that times out never
+    cancels the download for the cases after it."""
 
     def __init__(self, s: Settings, http: httpx.AsyncClient):
         self.s, self.http = s, http
         self._sdn: list[tuple[str, str, str]] | None = None
         self._un: list[tuple[str, str, str]] | None = None
-        self._sdn_lock = asyncio.Lock()
+        self._tasks: dict[str, asyncio.Task] = {}
 
     @property
     def name(self) -> str:
-        return "OpenSanctions" if self.s.opensanctions_api_key else "OFAC SDN + UN Security Council lists"
+        if self.s.opensanctions_api_key:
+            return "OpenSanctions"
+        return "OFAC SDN + UN Security Council lists" if self._un is not None else "OFAC SDN list (UN list not loaded)"
+
+    def _task(self, key: str, load) -> asyncio.Task:
+        """The shared download for one list; restarted if the previous attempt failed."""
+        t = self._tasks.get(key)
+        if t is None or (t.done() and (t.cancelled() or t.exception() is not None)):
+            t = self._tasks[key] = asyncio.create_task(load())
+        return t
 
     async def screen(self, names: list[str], country: str | None = None) -> list[SanctionsHit]:
         names = [n for n in dict.fromkeys(n.strip() for n in names if n and n.strip())]
@@ -258,21 +273,20 @@ class SanctionsClient:
         return hits
 
     async def _load_sdn(self) -> list[tuple[str, str, str]]:
-        async with self._sdn_lock:
-            if self._sdn is not None:
-                return self._sdn
-            try:
-                r = await self.http.get(self.s.ofac_sdn_url, follow_redirects=True, timeout=30)
-                r.raise_for_status()
-            except httpx.HTTPError as e:
-                raise SourceUnavailable(f"OFAC SDN list unavailable: {e}") from e
-            rows = []
-            for row in csv.reader(io.StringIO(r.text)):
-                if len(row) >= 4 and row[1] and row[1] != "-0-":
-                    rows.append((row[0], row[1].strip(), row[3].strip()))  # ent_num, name, program
-            self._sdn = rows
-            log.info("Loaded %d OFAC SDN entries", len(rows))
-            return rows
+        if self._sdn is not None:
+            return self._sdn
+        try:
+            r = await self.http.get(self.s.ofac_sdn_url, follow_redirects=True, timeout=30)
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise SourceUnavailable(f"OFAC SDN list unavailable: {e}") from e
+        rows = []
+        for row in csv.reader(io.StringIO(r.text)):
+            if len(row) >= 4 and row[1] and row[1] != "-0-":
+                rows.append((row[0], row[1].strip(), row[3].strip()))  # ent_num, name, program
+        self._sdn = rows
+        log.info("Loaded %d OFAC SDN entries", len(rows))
+        return rows
 
     async def _load_un(self) -> list[tuple[str, str, str]]:
         """UN Security Council consolidated list (XML, parsed with defusedxml)."""
@@ -298,14 +312,29 @@ class SanctionsClient:
                     if a:
                         rows.append((ref, a, "UN SC alias"))
         self._un = rows
+        log.info("Loaded %d UN sanctions entries", len(rows))
         return rows
 
+    async def warm(self) -> None:
+        """Start both downloads at startup so the first case doesn't spend its time budget on them."""
+        if self.s.opensanctions_api_key:
+            return
+        results = await asyncio.gather(self._task("sdn", self._load_sdn), self._task("un", self._load_un),
+                                       return_exceptions=True)
+        for e in results:
+            if isinstance(e, Exception):
+                log.warning("Sanctions list preload failed (will retry on the next case): %s", e)
+
     async def _ofac(self, names: list[str]) -> list[SanctionsHit]:
-        sdn = list(await self._load_sdn())
+        # shield(): a case hitting its wait limit must not cancel the shared download.
         try:
-            sdn += await self._load_un()
-        except SourceUnavailable as e:
-            log.warning("%s; screening against OFAC only", e)
+            sdn = list(await asyncio.wait_for(asyncio.shield(self._task("sdn", self._load_sdn)), SDN_WAIT_S))
+        except asyncio.TimeoutError:
+            raise SourceUnavailable("OFAC SDN list is still downloading") from None
+        try:
+            sdn += await asyncio.wait_for(asyncio.shield(self._task("un", self._load_un)), UN_WAIT_S)
+        except (asyncio.TimeoutError, SourceUnavailable) as e:
+            log.warning("UN sanctions list not available (%s); screening against OFAC only", e or "still downloading")
         hits = []
         for n in names:
             for ent, sdn_name, program in sdn:

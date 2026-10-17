@@ -90,7 +90,8 @@ async def investigate(case: Case, tenant: Tenant, policy: Policy, deps: Deps, pu
             {"label": d.label, "filename": d.filename, "type": d.mime_type} for d in case.sources]})
         req, notes = await intake.extract(deps.gemini, case.sources, blobs)
         case.request = req
-        await publish("intake.completed", {"request": req.model_dump(mode="json"), "notes": notes})
+        read_by = "patterns" if any(intake.PATTERN_NOTE in n for n in notes) else "gemini"
+        await publish("intake.completed", {"request": req.model_dump(mode="json"), "notes": notes, "read_by": read_by})
 
         vendors = await store.list_vendors(tid)
         v, why = match_vendor(req, addr_domain(req.requester_email), vendors)

@@ -186,6 +186,11 @@ class Outcome(BaseModel):
     requirements: list[str]
     failed_required_checks: list[str]
     reasons: list[str]
+    # How the decision was reached, for display: what each finding added, the thresholds,
+    # and every step that set or raised the decision. Purely descriptive; decide() is the logic.
+    contributions: list[dict[str, Any]] = Field(default_factory=list)
+    thresholds: dict[str, int] = Field(default_factory=dict)
+    path: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def apply_overrides(f: Finding, s: PolicySettings) -> Finding:
@@ -196,9 +201,16 @@ def apply_overrides(f: Finding, s: PolicySettings) -> Finding:
 def decide(policy: Policy, findings: list[Finding], facts: dict) -> Outcome:
     s = policy.settings
     per_code: dict[str, int] = {}
+    top: dict[str, Finding] = {}
     for f in findings:
-        per_code[f.code] = max(per_code.get(f.code, 0), s.severity_points[f.severity])
+        pts = s.severity_points[f.severity]
+        if f.code not in per_code or pts > per_code[f.code]:
+            top[f.code] = f
+        per_code[f.code] = max(per_code.get(f.code, 0), pts)
     base = min(100, sum(per_code.values()))
+    contributions = sorted(({"code": c, "agent": top[c].agent, "title": top[c].title,
+                             "severity": top[c].severity.value, "points": p}
+                            for c, p in per_code.items() if p > 0), key=lambda x: -x["points"])
     facts = {**facts, "score": base}
 
     fired, floor, reqs, reasons, extra = [], Decision.release, [], [], 0
@@ -213,24 +225,38 @@ def decide(policy: Policy, findings: list[Finding], facts: dict) -> Outcome:
             reasons.append(r.description)
     score = min(100, base + extra)
 
+    path: list[dict[str, Any]] = []
     decision = Decision.release
-    if score >= s.hold_at or (s.critical_forces_hold and any(f.severity == Severity.critical for f in findings)):
+    if score >= s.hold_at:
         decision = Decision.hold
     elif score >= s.callback_at:
         decision = Decision.callback
+    path.append({"kind": "score", "label": f"Risk score {score}", "decision": decision.value, "raised": False})
+    critical = [f.title for f in findings if f.severity == Severity.critical]
+    if s.critical_forces_hold and critical and decision != Decision.hold:
+        decision = Decision.hold
+        path.append({"kind": "critical", "label": f"Critical finding: {critical[0]}", "decision": decision.value, "raised": True})
+    for r in fired:
+        if r.min_decision:
+            raised = DECISION_RANK[r.min_decision] > DECISION_RANK[decision]
+            path.append({"kind": "rule", "label": r.description, "decision": r.min_decision.value, "raised": raised})
     if DECISION_RANK[floor] > DECISION_RANK[decision]:
         decision = floor
 
     failed_required = [a for a in s.required_checks if facts["check_failed"].get(a)]
     if failed_required:  # fail closed
         forced = Decision.hold if s.fail_mode == "hold" else Decision.callback
+        path.append({"kind": "failed", "label": f"Required check didn't run: {', '.join(failed_required)}",
+                     "decision": forced.value, "raised": DECISION_RANK[forced] > DECISION_RANK[decision]})
         if DECISION_RANK[forced] > DECISION_RANK[decision]:
             decision = forced
         reasons.append(f"Required check did not complete: {', '.join(failed_required)}")
     if decision == Decision.callback and "callback" not in reqs:
         reqs.append("callback")
     return Outcome(decision=decision, score=score, base_score=base, fired_rules=fired,
-                   requirements=sorted(set(reqs)), failed_required_checks=failed_required, reasons=reasons)
+                   requirements=sorted(set(reqs)), failed_required_checks=failed_required, reasons=reasons,
+                   contributions=contributions, thresholds={"callback_at": s.callback_at, "hold_at": s.hold_at},
+                   path=path)
 
 
 # -------------------------------------------------------------- templates ----

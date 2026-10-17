@@ -22,7 +22,7 @@ from .auth import Access, access, assert_safe_auth_mode, principal_from
 from .config import Settings, get_settings
 from .models import Case, CaseStatus, Event, utcnow
 from .orchestrator import TERMINAL, Deps, Publisher, investigate
-from .parsing import UnsupportedFile, _Labeler, parse_upload
+from .parsing import AUDIO, DOCS, UnsupportedFile, _Labeler, parse_upload
 from .policy import TEMPLATES, Policy, PolicySettings, Rule, policy_from_template, simulate
 from .report import build_html, build_pdf
 from .sources import Sources
@@ -49,9 +49,13 @@ async def lifespan(app: FastAPI):
     s = get_settings()
     logging.basicConfig(level=s.log_level, format='{"severity":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}')
     assert_safe_auth_mode(s.auth_mode, s.allow_dev_auth)
+    warm = None
     if not hasattr(app.state, "deps"):
         app.state.deps = build_deps(s)
+        warm = asyncio.create_task(app.state.deps.sources.sanctions.warm())
     yield
+    if warm:
+        warm.cancel()
     await app.state.deps.sources.aclose()
 
 
@@ -60,7 +64,8 @@ app = FastAPI(title="Verify-Before-Wire", version="2.0.0", lifespan=lifespan)
 MAX_REQUEST_BYTES = 110 * 1024 * 1024
 CSP = ("default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; "
        "style-src 'self' https://fonts.googleapis.com; "
-       "font-src https://fonts.gstatic.com; img-src 'self' data:; frame-src https://*.firebaseapp.com; "
+       "font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; "
+       "frame-src https://*.firebaseapp.com blob:; "
        "connect-src 'self' https://*.googleapis.com; frame-ancestors 'none'; base-uri 'none'")
 
 
@@ -76,13 +81,16 @@ async def security_and_logging(request: Request, call_next):
     except ValueError:
         return JSONResponse({"detail": "Bad Content-Length."}, status_code=400)
     resp = await call_next(request)
+    resp.headers.setdefault("Content-Security-Policy", CSP)   # a route may set a stricter one
     resp.headers.update({"X-Request-ID": rid, "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
-                         "Referrer-Policy": "no-referrer", "Content-Security-Policy": CSP,
+                         "Referrer-Policy": "no-referrer",
                          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
                          "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
                          "Cross-Origin-Opener-Policy": "same-origin-allow-popups"})
     if request.url.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/assets") or request.url.path == "/":
+        resp.headers["Cache-Control"] = "no-cache"   # revalidate (ETag), so a deploy never leaves a stale UI
     if not request.url.path.startswith("/assets"):
         log.info(json.dumps({"rid": rid, "method": request.method, "path": request.url.path,
                              "status": resp.status_code, "ms": int((time.perf_counter() - t0) * 1000)}))
@@ -471,7 +479,8 @@ async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes
         if len(data) > s.max_upload_mb * 1024 * 1024:
             raise HTTPException(413, f"{name} is larger than {s.max_upload_mb} MB.")
         try:
-            for doc, raw in parse_upload(name, mime, data, label):
+            # Off the event loop: PDF extraction can take seconds and would stall every other request.
+            for doc, raw in await asyncio.to_thread(parse_upload, name, mime, data, label):
                 doc.storage_uri = await d.store.put_blob(f"{tid}/cases/{case.id}/{doc.label}", raw, doc.mime_type)
                 case.sources.append(doc)
         except UnsupportedFile as e:
@@ -549,6 +558,25 @@ async def get_case(tid: str, cid: str, request: Request):
     if not c:
         raise HTTPException(404, "Case not found.")
     return _case_out(c)
+
+
+@app.get("/api/t/{tid}/cases/{cid}/sources/{label}")
+async def case_source(tid: str, cid: str, label: str, request: Request):
+    """The original voice note, PDF or image, so reviewers can check the evidence themselves.
+    Emails and text are already in the case JSON as parsed text and are not served raw."""
+    await access(request, tid, Perm.case_read)
+    d = deps(request)
+    c = await d.store.get_case(tid, cid)
+    doc = next((s for s in c.sources if s.label == label), None) if c else None
+    if not doc or not doc.storage_uri:
+        raise HTTPException(404, "Input not found.")
+    if doc.mime_type not in AUDIO | DOCS:
+        raise HTTPException(415, "Only voice notes, PDFs and images can be opened here.")
+    data = await d.store.get_blob(doc.storage_uri)
+    safe_name = re.sub(r"[^\w.-]", "_", doc.filename)[-120:]
+    return Response(data, media_type=doc.mime_type, headers={
+        "Content-Disposition": f'inline; filename="{safe_name}"',
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; media-src 'self'"})
 
 
 def _sse(ev: Event) -> str:

@@ -43,7 +43,8 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
             detail=f"Mail came from {domain}, which differs from the trusted domain {imitated} "
                    "by a character swap or lookalike glyph.",
             evidence=[Evidence(source="email", excerpt=sender or domain)],
-            data_source="Trusted domain list (vendor master + company domains)"))
+            data_source="Trusted domain list (vendor master + company domains)",
+            meta={"domain": domain, "imitates": imitated}))
 
     if domain in FREE_MAIL:
         await emit(Finding(

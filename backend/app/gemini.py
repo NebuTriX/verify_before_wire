@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -13,10 +15,26 @@ from .config import Settings
 
 log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
+QUOTA_PAUSE_MAX_S = 3600   # after a quota error, skip Gemini until the reported retry time (at most 1 h)
 
 
 class GeminiError(Exception):
-    pass
+    """str() is a short reason safe to show users; the full API error goes to the log only."""
+
+
+def _reason(e: Exception) -> str:
+    s = str(e)
+    if isinstance(e, asyncio.TimeoutError):
+        return "timed out"
+    if isinstance(e, (ValidationError, json.JSONDecodeError)):
+        return "returned an unreadable answer"
+    if "RESOURCE_EXHAUSTED" in s or s.startswith("429"):
+        return "quota used up"
+    if "UNAVAILABLE" in s or s.startswith("503"):
+        return "model busy"
+    if "PERMISSION_DENIED" in s or "API_KEY_INVALID" in s or s.startswith(("401", "403")):
+        return "access denied"
+    return "request failed"
 
 
 class Gemini:
@@ -34,6 +52,7 @@ class Gemini:
                                        location=s.gemini_location)
         else:
             raise GeminiError(f"unknown GEMINI_MODE {s.gemini_mode!r}")
+        self._paused_until = 0.0
 
     def text_part(self, text: str):
         return self.types.Part.from_text(text=text)
@@ -42,6 +61,8 @@ class Gemini:
         return self.types.Part.from_bytes(data=data, mime_type=mime)
 
     async def json(self, schema: type[T], system: str, parts: list, attempts: int = 2) -> T:
+        if time.monotonic() < self._paused_until:
+            raise GeminiError("quota used up")
         t = self.types
         cfg = dict(
             system_instruction=system,
@@ -69,5 +90,10 @@ class Gemini:
             except Exception as e:  # SDK / API errors
                 last = e
             log.warning("Gemini attempt %d failed: %s", i + 1, last)
+            if _reason(last) == "quota used up":
+                # Retrying can't succeed and spends quota; pause until Google says it resets.
+                m = re.search(r"retryDelay['\"]?\s*:\s*['\"](\d+)s", str(last))
+                self._paused_until = time.monotonic() + min(int(m.group(1)) if m else 60, QUOTA_PAUSE_MAX_S)
+                break
             await asyncio.sleep(0.6 * (i + 1))
-        raise GeminiError(str(last))
+        raise GeminiError(_reason(last) if last else "request failed")

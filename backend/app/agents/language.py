@@ -62,6 +62,12 @@ PATTERNS = {
     "callback_discouraged": r"\b(don'?t|do not|no need to) (call|phone|ring)|can'?t take calls|in (a )?(board )?meeting\b",
     "channel_change": r"\b(whatsapp|telegram|signal|personal (email|number))\b",
 }
+FALLBACK_WHY = {
+    "urgency": "A tight deadline leaves no time to verify the request.",
+    "secrecy": "Asking to keep a payment quiet stops colleagues from checking it.",
+    "callback_discouraged": "Avoiding calls blocks the one check that stops this fraud: a callback.",
+    "channel_change": "Moving to a personal channel takes the conversation out of company records.",
+}
 
 
 def _norm(t: str) -> str:
@@ -75,15 +81,40 @@ def verify_quote(quote: str, text: str) -> bool:
     return q in t or fuzz.partial_ratio(q, t) >= 92
 
 
-def _texts(ctx: AgentContext) -> dict[str, str]:
+def _texts(ctx: AgentContext, for_model: bool = True) -> dict[str, str]:
+    """Input texts by label. Masking only protects what is sent to Gemini; the local pattern
+    fallback reads the original words so its quotes match what the user sees."""
     texts = {d.label: d.text for d in ctx.docs if d.text}
     if ctx.request.transcript:
         for d in ctx.docs:
             if d.label.startswith("voice_note") and d.label not in texts:
                 texts[d.label] = ctx.request.transcript
-    if ctx.settings.gemini_redact:
+    if for_model and ctx.settings.gemini_redact:
         texts = {k: redact(v) for k, v in texts.items()}
     return texts
+
+
+def _body(label: str, text: str) -> str:
+    """Email texts start with a header block; the pattern fallback reads only the body."""
+    if label.startswith("email") and "\n\n" in text:
+        return text.split("\n\n", 1)[1]
+    return text
+
+
+def _sentence(text: str, start: int, end: int, limit: int = 200) -> str:
+    """The sentence (or line) around a match, trimmed to whole words if it is very long."""
+    s = max(text.rfind(c, 0, start) for c in ".!?\n") + 1
+    m = re.search(r"[.!?\n]", text[end:])
+    e = end + m.end() if m else len(text)
+    if e - s > limit:
+        s, e = max(s, start - limit // 2), min(e, end + limit // 2)
+        while s > 0 and s < start and not text[s - 1].isspace():
+            s += 1
+        while e < len(text) and e > s and not text[e].isspace():
+            e -= 1
+        if e - s < end - start:   # no spaces to cut at: keep the match itself
+            s, e = start, end
+    return text[s:e].strip()
 
 
 async def run(ctx: AgentContext, emit: Emit) -> None:
@@ -108,6 +139,7 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
         except GeminiError as e:
             log.warning("language agent falling back to patterns: %s", e)
     if not used_model:
+        texts = {k: _body(k, v) for k, v in _texts(ctx, for_model=False).items()}
         seen: set[str] = set()
         for label, text in texts.items():
             for tactic, pat in PATTERNS.items():
@@ -115,10 +147,9 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
                     continue
                 if m := re.search(pat, text, re.I):
                     seen.add(tactic)
-                    start = max(0, m.start() - 40)
                     signals.append(Signal(tactic=tactic, severity="medium", source=label,
-                                          quote=text[start:m.end() + 40].strip(),
-                                          explanation="Matched a known pressure phrase."))
+                                          quote=_sentence(text, m.start(), m.end()),
+                                          explanation=FALLBACK_WHY[tactic]))
 
     emitted = 0
     for sig in signals:

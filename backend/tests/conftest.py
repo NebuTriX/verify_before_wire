@@ -99,7 +99,8 @@ class FakeGemini:
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(store_backend="memory", auth_mode="dev", seed_file=ROOT / "scripts" / "seed_data.json",
+    return Settings(_env_file=None, store_backend="memory", auth_mode="dev",
+                    seed_file=ROOT / "scripts" / "seed_data.json",
                     demo_dir=ROOT.parent / "demo", rate_limit_per_minute=1000, demo_enabled=True)
 
 
