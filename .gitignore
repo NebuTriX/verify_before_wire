@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 .venv/
 data/
+.DS_Store
+.hypothesis/
+.firebaserc
+.firebase/
+firebase-debug.log
+firestore-debug.log

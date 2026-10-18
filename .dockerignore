@@ -3,3 +3,9 @@
 backend/tests
 backend/.env
 .git
+backend/.venv
+backend/data
+backend/.hypothesis
+.claude
+.idea
+**/.DS_Store

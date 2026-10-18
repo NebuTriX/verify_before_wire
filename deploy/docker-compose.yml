@@ -6,17 +6,46 @@ services:
     environment: { POSTGRES_DB: vbw, POSTGRES_USER: vbw, POSTGRES_PASSWORD_FILE: /run/secrets/db_password }
     secrets: [db_password]
     volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "vbw"], interval: 3s, retries: 30 }
     restart: unless-stopped
+  migrate:                                             # one-shot: brings the schema up to date, then exits
+    image: ghcr.io/nebutrix/verify_before_wire:latest
+    depends_on: { db: { condition: service_healthy } }
+    env_file: ./vbw.env
+    command: ["alembic", "upgrade", "head"]
+    restart: on-failure
   app:
     image: ghcr.io/nebutrix/verify_before_wire:latest   # pin a signed version tag in production
-    depends_on: [db]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
     env_file: ./vbw.env
     environment:
       STORE_BACKEND: sql
+      DB_AUTO_MIGRATE: "false"
+      WORKER_ENABLED: "false"                          # the worker service below runs investigations + webhooks
       BLOB_BACKEND: file
       BLOB_DIR: /data/blobs
+      SANCTIONS_CACHE_DIR: /tmp/sanctions
     volumes: [blobs:/data/blobs]
     ports: ["127.0.0.1:8080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    restart: unless-stopped
+  worker:                                              # scale with: docker compose up -d --scale worker=3
+    image: ghcr.io/nebutrix/verify_before_wire:latest
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    env_file: ./vbw.env
+    command: ["python", "-m", "app.worker"]
+    environment:
+      STORE_BACKEND: sql
+      DB_AUTO_MIGRATE: "false"
+      BLOB_BACKEND: file
+      BLOB_DIR: /data/blobs
+      SANCTIONS_CACHE_DIR: /tmp/sanctions
+    volumes: [blobs:/data/blobs]
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]

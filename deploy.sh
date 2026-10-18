@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# One-shot setup + deploy to Cloud Run. Safe to re-run.
-#   PROJECT_ID=my-project REGION=asia-southeast1 ./deploy.sh
+# One-shot setup + deploy to Google Cloud Run + Firebase (Hosting, Authentication, Firestore). Safe to re-run.
+#   PROJECT_ID=my-project FIREBASE_API_KEY=<web app apiKey> REGION=asia-southeast1 ./deploy.sh
+# Needs: gcloud (logged in), and Node.js for the Firebase CLI (run through npx). Set FIREBASE_HOSTING=0
+# to skip Firebase Hosting and use the Cloud Run URL directly.
 set -euo pipefail
 : "${PROJECT_ID:?set PROJECT_ID}"
 : "${FIREBASE_API_KEY:?set FIREBASE_API_KEY (Firebase console > Project settings > Web app config)}"
 REGION="${REGION:-asia-southeast1}"
 SERVICE="${SERVICE:-verify-before-wire}"
+FIREBASE_HOSTING="${FIREBASE_HOSTING:-1}"
+# With Firebase Hosting, sign-in runs on the app's own domain (Hosting serves /__/auth/*), which
+# avoids third-party-cookie problems in Safari and Chrome.
+if [[ "$FIREBASE_HOSTING" == "1" ]]; then DEFAULT_AUTH_DOMAIN="$PROJECT_ID.web.app"; else DEFAULT_AUTH_DOMAIN="$PROJECT_ID.firebaseapp.com"; fi
 SA="vbw-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
 BUCKET="${BUCKET:-${PROJECT_ID}-vbw-uploads}"
 
@@ -47,12 +53,26 @@ if [[ -n "${OPENSANCTIONS_API_KEY:-}" ]]; then
 fi
 
 echo "› deploying $SERVICE (Cloud Build builds the Dockerfile)"
+# --no-cpu-throttling + min 1 instance (below) keep the in-process worker running API-submitted cases
+# and delivering webhooks between requests; Cloud Run would otherwise freeze the CPU when idle.
 gcloud run deploy "$SERVICE" --source . --region "$REGION" --service-account "$SA" \
-  --allow-unauthenticated --timeout 300 --cpu 1 --memory 1Gi --concurrency 40 \
+  --allow-unauthenticated --timeout 300 --cpu 1 --memory 2Gi --concurrency 40 \
   --min-instances 1 --max-instances 10 --no-cpu-throttling \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,DEMO_ENABLED=${DEMO_ENABLED:-true},BLOB_BACKEND=gcs,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$PROJECT_ID.firebaseapp.com}" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,DEMO_ENABLED=${DEMO_ENABLED:-true},BLOB_BACKEND=gcs,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$DEFAULT_AUTH_DOMAIN},GEMINI_MODE=vertex,SANCTIONS_CACHE_DIR=/tmp/sanctions" \
   "${SECRET_FLAG[@]}"
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
-echo "› live at $URL"
-curl -s "$URL/healthz"; echo
+echo "› Cloud Run: $URL"
+curl -s "$URL/readyz"; echo
+
+if [[ "$FIREBASE_HOSTING" == "1" ]]; then
+  echo "› Firebase: Hosting (rewrites to $SERVICE in $REGION) + Firestore rules and indexes"
+  # keep firebase.json pointing at this service and region
+  sed -i.bak -E "s/\"serviceId\": \"[^\"]+\"/\"serviceId\": \"$SERVICE\"/; s/\"region\": \"[^\"]+\"/\"region\": \"$REGION\"/" firebase.json && rm -f firebase.json.bak
+  npx -y firebase-tools@latest deploy --project "$PROJECT_ID" --only hosting,firestore:rules,firestore:indexes --non-interactive
+  echo "› live at https://$PROJECT_ID.web.app"
+  curl -s "https://$PROJECT_ID.web.app/readyz"; echo
+fi
+echo "› Sign-in: enable Google and Email/Password in Firebase console > Authentication > Sign-in method."
+echo "  Authorized domains already include $PROJECT_ID.web.app and $PROJECT_ID.firebaseapp.com; add the Cloud Run URL if you use it directly."
+echo "  Check the setup any time with: python backend/scripts/firebase_check.py"
