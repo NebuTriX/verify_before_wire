@@ -32,7 +32,8 @@ def main() -> int:
     from fastapi.testclient import TestClient
 
     from app.config import Settings
-    from app.main import app, build_deps
+    from app.deps import build_deps
+    from app.main import app
     from app.orchestrator import Deps
     from app.store import MemoryStore
     s = Settings(store_backend="memory", blob_backend="memory", auth_mode="dev", demo_enabled=True,

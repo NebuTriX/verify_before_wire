@@ -34,7 +34,7 @@ async def run(ctx: AgentContext, emit: Emit, now: datetime | None = None) -> Non
                 evidence=[Evidence(source=ctx.sources.fx.name, excerpt=f"1 {req.currency.upper()} = {rate:.4f} {base}")],
                 data_source=ctx.sources.fx.name))
         except SourceUnavailable as e:
-            await emit(Finding(agent=NAME, code="FX_UNAVAILABLE", severity=Severity.low,
+            await emit(Finding(agent=NAME, code="FX_UNAVAILABLE", source_unavailable=True, severity=Severity.low,
                                title="Live FX rate unavailable",
                                detail=f"{e}. Amount compared in original currency only.",
                                data_source=ctx.sources.fx.name))

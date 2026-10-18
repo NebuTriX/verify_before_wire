@@ -1,5 +1,6 @@
-"""Persistence, tenant-scoped. Backends implement six primitives (get, set, delete, query,
-atomic, blobs); every domain method is written once on top of them.
+"""Persistence, tenant-scoped. Document backends (memory, Firestore) implement six primitives
+(get, set, delete, query, atomic, blobs) and inherit every domain method written on top of them.
+The SQL backend (app/sqlstore.py) overrides the domain methods with a relational schema instead.
 
 Firestore layout
   tenants/{tid}                         workspace + settings + active policy version
@@ -14,6 +15,9 @@ Firestore layout
   users/{uid}/memberships/{tid}         which workspaces a person belongs to
   api_keys/{prefix}                     key lookup -> tenant (hash only)
   invites/{token_hash}                  pending invitations (hash only)
+  tenants/{tid}/webhooks/{id}           outbound webhook endpoints
+  webhook_deliveries/{id}               webhook outbox (global, carries tenant_id)
+  work_queue/{tid}__{cid}               cases a worker may pick up (queued or running)
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ import asyncio
 import copy
 import json
 import logging
+import random
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -32,6 +37,12 @@ from .policy import Policy
 from .tenancy import Invite, Member, Tenant
 
 log = logging.getLogger(__name__)
+CONTENTION_ROUNDS = 6
+
+
+class StoreContention(RuntimeError):
+    """A transaction could not commit because other writers kept winning (Firestore under heavy
+    contention). Claims treat it as "someone else has it"; other writes surface it as an error."""
 Mutator = Callable[[dict | None], tuple[dict | None, Any]]
 
 
@@ -45,22 +56,32 @@ def _dt(v):
 
 class Store(ABC):
     # ------------------------------------------------------- primitives ----
-    @abstractmethod
-    async def get(self, path: str) -> dict | None: ...
-    @abstractmethod
-    async def set(self, path: str, data: dict) -> None: ...
-    @abstractmethod
-    async def delete(self, path: str) -> None: ...
-    @abstractmethod
+    # Document backends implement these; the SQL backend overrides the domain methods instead.
+    async def get(self, path: str) -> dict | None:
+        raise NotImplementedError
+
+    async def set(self, path: str, data: dict) -> None:
+        raise NotImplementedError
+
+    async def delete(self, path: str) -> None:
+        raise NotImplementedError
+
     async def query(self, coll: str, where: list[tuple[str, str, Any]] | None = None,
-                    order_by: str | None = None, desc: bool = False, limit: int | None = None) -> list[dict]: ...
-    @abstractmethod
+                    order_by: str | None = None, desc: bool = False, limit: int | None = None) -> list[dict]:
+        raise NotImplementedError
+
     async def atomic(self, path: str, fn: Mutator) -> Any:
         """Read-modify-write one document in a transaction. fn returns (new_doc|None, result)."""
+        raise NotImplementedError
+
     @abstractmethod
     async def put_blob(self, key: str, data: bytes, mime: str) -> str: ...
     @abstractmethod
     async def get_blob(self, uri: str) -> bytes: ...
+
+    async def ping(self) -> None:
+        """Cheap connectivity check for readiness probes."""
+        await self.get("meta/ping")
 
     async def batch_set(self, items: list[tuple[str, dict]]) -> None:
         for p, d in items:
@@ -102,12 +123,19 @@ class Store(ABC):
     async def put_invite(self, tid: str, inv: Invite) -> None:
         await self.set(f"invites/{inv.token_hash}", {**inv.model_dump(mode="json"), "tenant_id": tid})
 
-    async def accept_invite(self, token_hash: str, uid: str) -> dict | None:
+    async def get_invite(self, token_hash: str) -> dict | None:
+        return await self.get(f"invites/{token_hash}")
+
+    async def accept_invite(self, token_hash: str, uid: str, email: str) -> tuple[str, dict | None]:
+        """Atomically use an invite. ("ok", invite), ("invalid", None) when missing/used/expired, or
+        ("wrong_email", invite) when it is for someone else, in which case it is NOT used up."""
         def fn(d):
             if not d or d.get("accepted_by") or _dt(d["expires_at"]) < _now():
-                return None, None
+                return None, ("invalid", None)
+            if d["email"].lower() != email.lower():
+                return None, ("wrong_email", d)
             d = {**d, "accepted_by": uid}
-            return d, d
+            return d, ("ok", d)
         return await self.atomic(f"invites/{token_hash}", fn)
 
     async def list_invites(self, tid: str) -> list[dict]:
@@ -165,8 +193,22 @@ class Store(ABC):
     def _case(self, tid: str, cid: str) -> str:
         return f"tenants/{tid}/cases/{cid}"
 
+    def _queue(self, tid: str, cid: str) -> str:
+        return f"work_queue/{tid}__{cid}"
+
+    async def _track(self, case: Case) -> None:
+        """Keep the cross-tenant work queue in step with the case, so workers never scan all cases."""
+        if case.status in (CaseStatus.completed, CaseStatus.failed):
+            await self.delete(self._queue(case.tenant_id, case.id))
+        else:
+            await self.set(self._queue(case.tenant_id, case.id), {
+                "tenant_id": case.tenant_id, "case_id": case.id, "status": case.status.value,
+                "created_at": case.created_at.isoformat(),
+                "lease_until": case.lease_until.isoformat() if case.lease_until else None})
+
     async def create_case(self, case: Case) -> None:
         await self.set(self._case(case.tenant_id, case.id), case.model_dump(mode="json"))
+        await self._track(case)
 
     async def get_case(self, tid: str, cid: str) -> Case | None:
         d = await self.get(self._case(tid, cid))
@@ -175,6 +217,7 @@ class Store(ABC):
     async def save_case(self, case: Case) -> None:
         case.updated_at = _now()
         await self.set(self._case(case.tenant_id, case.id), case.model_dump(mode="json"))
+        await self._track(case)
 
     async def update_case(self, tid: str, cid: str, fn: Callable[[Case], Any]) -> Any:
         """Transactional case change (workflow actions). fn mutates the Case, returns a result."""
@@ -206,7 +249,27 @@ class Store(ABC):
                 return None, False
             return {**d, "status": CaseStatus.running.value,
                     "lease_until": (_now() + timedelta(seconds=lease_seconds)).isoformat()}, True
-        return await self.atomic(self._case(tid, cid), fn)
+        try:
+            ok = await self.atomic(self._case(tid, cid), fn)
+        except StoreContention:
+            return False                 # another process is claiming it right now
+        if ok and (c := await self.get_case(tid, cid)):
+            await self._track(c)
+        return ok
+
+    async def claimable_cases(self, limit: int = 20) -> list[tuple[str, str]]:
+        """(tenant_id, case_id) a worker may run: queued, or running with an expired lease. Oldest first."""
+        now = _now()
+        rows = [r for r in await self.query("work_queue")
+                if r["status"] == CaseStatus.queued.value
+                or (r["status"] == CaseStatus.running.value and (not r.get("lease_until") or _dt(r["lease_until"]) < now))]
+        rows.sort(key=lambda r: r["created_at"])
+        return [(r["tenant_id"], r["case_id"]) for r in rows[:limit]]
+
+    async def find_case_by_external_ref(self, tid: str, ref: str) -> Case | None:
+        rows = await self.query(f"tenants/{tid}/cases", [("external_ref", "==", ref)])
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return Case(**rows[0]) if rows else None
 
     async def append_event(self, tid: str, cid: str, ev: Event) -> None:
         await self.set(f"{self._case(tid, cid)}/events/{ev.seq:06d}", ev.model_dump(mode="json"))
@@ -235,6 +298,66 @@ class Store(ABC):
         if head and head.get("pending") and (not rows or rows[-1]["seq"] < head["seq"]):
             rows.append(head["pending"])
         return [AuditEntry(**r) for r in rows]
+
+
+    # ---------------------------------------------------------- webhooks ----
+    async def put_webhook(self, tid: str, hook: dict) -> None:
+        await self.set(f"tenants/{tid}/webhooks/{hook['id']}", {**_jsonable(hook), "tenant_id": tid})
+
+    async def list_webhooks(self, tid: str) -> list[dict]:
+        return sorted(await self.query(f"tenants/{tid}/webhooks"), key=lambda h: str(h.get("created_at", "")))
+
+    async def delete_webhook(self, tid: str, hook_id: str) -> None:
+        await self.delete(f"tenants/{tid}/webhooks/{hook_id}")
+
+    async def enqueue_delivery(self, tid: str, d: dict) -> None:
+        await self.set(f"webhook_deliveries/{d['id']}", {**_jsonable(d), "tenant_id": tid})
+
+    async def due_deliveries(self, limit: int = 50) -> list[dict]:
+        now = _now()
+        rows = [r for r in await self.query("webhook_deliveries", [("status", "==", "pending")])
+                if _dt(r["next_attempt_at"]) <= now]
+        rows.sort(key=lambda r: r["next_attempt_at"])
+        return rows[:limit]
+
+    async def claim_delivery(self, tid: str, delivery_id: str, lease_seconds: int = 60) -> bool:
+        """Atomically take a due delivery so that only one process sends it: pushes its next attempt
+        out by lease_seconds. False if another process already took it (or it is no longer pending)."""
+        def fn(d):
+            if not d or d.get("tenant_id") != tid or d.get("status") != "pending" or _dt(d["next_attempt_at"]) > _now():
+                return None, False
+            return {**d, "next_attempt_at": (_now() + timedelta(seconds=lease_seconds)).isoformat()}, True
+        try:
+            return bool(await self.atomic(f"webhook_deliveries/{delivery_id}", fn))
+        except StoreContention:
+            return False                 # another process is sending it
+
+    async def renew_lease(self, tid: str, cid: str, lease_seconds: int) -> bool:
+        """Extend the lease of a case this process is still investigating (heartbeat)."""
+        def fn(c: Case) -> bool:
+            if c.status != CaseStatus.running:
+                return False
+            c.lease_until = _now() + timedelta(seconds=lease_seconds)
+            return True
+        res = await self.update_case(tid, cid, fn)
+        return bool(res and res[1])
+
+    async def update_delivery(self, tid: str, delivery_id: str, changes: dict) -> None:
+        def fn(d):
+            if not d or d.get("tenant_id") != tid:
+                return None, None
+            return {**d, **_jsonable(changes)}, None
+        await self.atomic(f"webhook_deliveries/{delivery_id}", fn)
+
+    async def list_deliveries(self, tid: str, limit: int = 50) -> list[dict]:
+        rows = await self.query("webhook_deliveries", [("tenant_id", "==", tid)])
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows[:limit]
+
+
+def _jsonable(d: dict) -> dict:
+    """Datetimes as ISO-8601 strings (sortable, and identical across backends)."""
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in d.items()}
 
 
 # ------------------------------------------------------------------ memory ---
@@ -325,7 +448,17 @@ class FirestoreStore(Store):
             if new is not None:
                 tx.set(ref, json.loads(json.dumps(new, default=str)))
             return res
-        return await run(self.db.transaction())
+        # Many writers on one document (audit head, a contested claim) can exhaust the SDK's own
+        # retries; back off with jitter and try again before giving up.
+        for attempt in range(CONTENTION_ROUNDS):
+            try:
+                return await run(self.db.transaction(max_attempts=10))
+            except ValueError as e:
+                if "Failed to commit transaction" not in str(e):
+                    raise
+                # jitter only, not security-sensitive
+                await asyncio.sleep(random.uniform(0.02, 0.12) * (attempt + 1))  # nosec B311
+        raise StoreContention(f"too many concurrent writes to {path}")
 
     async def batch_set(self, items):
         for i in range(0, len(items), 400):

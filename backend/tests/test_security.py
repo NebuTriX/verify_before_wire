@@ -4,7 +4,7 @@ import email.message
 import pytest
 
 from app.blobs import FileBlobs, _check
-from app.parsing import UnsupportedFile, _Labeler, parse_upload
+from app.parsing import UnsupportedFile, Labeler, parse_upload
 from tests.conftest import OWNER, H, make_workspace
 
 
@@ -32,9 +32,9 @@ def _nest(levels: int) -> bytes:
 
 
 def test_deeply_nested_email_rejected():
-    parse_upload("ok.eml", None, _nest(1), _Labeler())
+    parse_upload("ok.eml", None, _nest(1), Labeler())
     with pytest.raises(UnsupportedFile):
-        parse_upload("bomb.eml", None, _nest(5), _Labeler())
+        parse_upload("bomb.eml", None, _nest(5), Labeler())
 
 
 def test_security_headers(client):

@@ -96,6 +96,10 @@ def lookalike_of(domain: str, trusted: list[str]) -> str | None:
 
 def match_vendor(req: PaymentRequest, sender_domain: str | None,
                  vendors: list[Vendor]) -> tuple[Vendor | None, str | None]:
+    if req.vendor_id:                       # ERP submissions name the vendor record exactly
+        for v in vendors:
+            if v.id == req.vendor_id:
+                return v, f"vendor id {v.id} from your ERP"
     if sender_domain:
         for v in vendors:
             if sender_domain in v.domains:

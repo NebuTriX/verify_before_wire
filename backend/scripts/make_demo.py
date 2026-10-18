@@ -182,9 +182,31 @@ def main():
         {"id": "vendor-bank-change", "title": "Real vendor, new bank account, USD 61k",
          "description": "Authenticated email from a genuine vendor domain asking to pay a new account.",
          "files": ["vendor_bank_change.eml"], "expected": "HOLD"},
+        {"id": "ceo-video", "title": "CFO \"video message\", SGD 480k",
+         "description": "A still photo with a synthetic voice-over, forwarded on chat. Voice & video forensics.",
+         "files": ["ceo_video_message.mp4", "ceo_video_message.transcript.txt"], "expected": "HOLD"},
     ]
+    video_message()
     (ROOT / "demo" / "scenarios.json").write_text(json.dumps(scenarios, indent=1))
     print("demo files written to", FILES)
+
+
+def video_message() -> None:
+    """The cheap deepfake: a still 'portrait' card with the synthetic CFO voice over it (needs ffmpeg;
+    the committed file is kept when ffmpeg is missing)."""
+    import shutil
+    import subprocess  # nosec B404
+    (FILES / "ceo_video_message.transcript.txt").write_text((FILES / "ceo_voice_note.transcript.txt").read_text())
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("ffmpeg not found: keeping the existing ceo_video_message.mp4")
+        return
+    boxes = ("drawbox=x=250:y=60:w=140:h=140:color=0xc9b8ff:t=fill,drawbox=x=220:y=210:w=200:h=150:color=0x533afd:t=fill,"
+             "drawbox=x=0:y=318:w=640:h=42:color=0x0a2540:t=fill")
+    subprocess.run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x1c1e54:s=640x360:d=25",  # nosec B603
+                    "-i", str(FILES / "ceo_voice_note.wav"), "-vf", boxes, "-c:v", "libx264", "-tune", "stillimage",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-shortest", "-fflags", "+bitexact",
+                    "-map_metadata", "-1", str(FILES / "ceo_video_message.mp4")], check=True)
 
 
 if __name__ == "__main__":

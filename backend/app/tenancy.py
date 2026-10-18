@@ -18,6 +18,7 @@ class Role(str, Enum):
     analyst = "analyst"            # run cases, record callbacks
     clerk = "clerk"                # submit cases
     auditor = "auditor"            # read-only, incl. audit log
+    integration = "integration"    # ERP connector (API keys only): submit payments, sync master data; never decides
 
 
 class Perm(str, Enum):
@@ -41,6 +42,7 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.analyst: {Perm.case_create, Perm.case_read, Perm.callback_record},
     Role.clerk: {Perm.case_create, Perm.case_read},
     Role.auditor: {Perm.case_read, Perm.audit_read},
+    Role.integration: {Perm.case_create, Perm.case_read, Perm.data_import},
 }
 
 

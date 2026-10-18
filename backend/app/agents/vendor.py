@@ -149,6 +149,6 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
                         evidence=[Evidence(source=ctx.sources.ifsc.name, excerpt=f"{code} → {info.bank}")],
                         data_source=ctx.sources.ifsc.name))
             except SourceUnavailable as e:
-                await emit(Finding(agent=NAME, code="IFSC_LOOKUP_UNAVAILABLE", severity=Severity.low,
+                await emit(Finding(agent=NAME, code="IFSC_LOOKUP_UNAVAILABLE", source_unavailable=True, severity=Severity.low,
                                    title="Bank branch lookup unavailable", detail=str(e),
                                    data_source=ctx.sources.ifsc.name))
