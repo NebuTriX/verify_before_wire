@@ -76,7 +76,7 @@ MAX_REQUEST_BYTES = 110 * 1024 * 1024
 CSP = ("default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; "
        "style-src 'self' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; "
-       "frame-src https://*.firebaseapp.com blob:; "
+       "frame-src https://*.firebaseapp.com https://*.web.app blob:; "   # Firebase sign-in frame on either auth domain
        "connect-src 'self' https://*.googleapis.com; frame-ancestors 'none'; base-uri 'none'")
 
 
