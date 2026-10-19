@@ -874,9 +874,9 @@ video.clip { width: 100%; max-height: 70vh; display: block; background: #000; bo
 .src.s-paused { border-color: #FCD9A6; background: #FFFAF0; } .src.s-paused .sub, .src.s-paused .ms { color: var(--callback); }
 .edge.call.done.paused { stroke: #FCD34D; stroke-dasharray: 3 4; } .pkt.paused { fill: #F59E0B; }
 .wf-row.s-paused .wf-bar { background: #FCD34D; } .console .st-paused .cm { color: #FCD34D; }
-.auth .google { gap: 10px; } .auth .g { font: 700 1rem var(--sans); color: #4285F4; }
-.auth .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .8rem; margin: 16px 0; }
-.auth .or::before, .auth .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.auth-form .google { display: flex; align-items: center; justify-content: center; gap: 10px; } .auth-form .g { font: 700 1rem var(--sans); color: #4285F4; }
+.auth-form .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .8rem; margin: 16px 0; }
+.auth-form .or::before, .auth-form .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .center { text-align: center; }
 
 /* ---------- web interface guidelines: touch, focus, typography ---------- */
