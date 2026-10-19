@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot setup + deploy to Google Cloud Run + Firebase (Hosting, Authentication, Firestore). Safe to re-run.
-#   PROJECT_ID=my-project FIREBASE_API_KEY=<web app apiKey> REGION=asia-southeast1 ./deploy.sh
+#   PROJECT_ID=my-project FIREBASE_API_KEY=<web app apiKey> [FIREBASE_APP_ID=<web app appId>] REGION=asia-southeast1 ./deploy.sh
 # Needs: gcloud (logged in), and Node.js for the Firebase CLI (run through npx). Set FIREBASE_HOSTING=0
 # to skip Firebase Hosting and use the Cloud Run URL directly.
 set -euo pipefail
@@ -58,8 +58,8 @@ echo "› deploying $SERVICE (Cloud Build builds the Dockerfile)"
 gcloud run deploy "$SERVICE" --source . --region "$REGION" --service-account "$SA" \
   --allow-unauthenticated --timeout 300 --cpu 1 --memory 2Gi --concurrency 40 \
   --min-instances 1 --max-instances 10 --no-cpu-throttling \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,DEMO_ENABLED=${DEMO_ENABLED:-true},BLOB_BACKEND=gcs,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$DEFAULT_AUTH_DOMAIN},GEMINI_MODE=vertex,SANCTIONS_CACHE_DIR=/tmp/sanctions" \
-  "${SECRET_FLAG[@]}"
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,UPLOADS_BUCKET=$BUCKET,GEMINI_LOCATION=${GEMINI_LOCATION:-global},GEMINI_MODEL=${GEMINI_MODEL:-gemini-3-flash-preview},AUTH_MODE=firebase,DEMO_ENABLED=${DEMO_ENABLED:-true},BLOB_BACKEND=gcs,FIREBASE_PROJECT_ID=$PROJECT_ID,FIREBASE_API_KEY=$FIREBASE_API_KEY,FIREBASE_APP_ID=${FIREBASE_APP_ID:-},FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN:-$DEFAULT_AUTH_DOMAIN},GEMINI_MODE=vertex,SANCTIONS_CACHE_DIR=/tmp/sanctions" \
+  ${SECRET_FLAG[@]+"${SECRET_FLAG[@]}"}   # empty-array safe on macOS bash 3.2 under set -u
 
 URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
 echo "› Cloud Run: $URL"
