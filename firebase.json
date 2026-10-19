@@ -3,7 +3,7 @@
     "public": "firebase/public",
     "ignore": ["**/.*"],
     "rewrites": [
-      { "source": "**", "run": { "serviceId": "verify-before-wire", "region": "asia-southeast1" } }
+      { "source": "**", "run": { "serviceId": "verify-before-wire", "region": "asia-south1" } }
     ],
     "headers": [
       { "source": "**", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
