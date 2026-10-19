@@ -1,0 +1,9 @@
+# Files gcloud does not upload for `gcloud run deploy --source .`
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+videos/
+.idea/
+.claude/
+docs/assets/*.mp4
