@@ -19,6 +19,11 @@
   <a href="docs/production.md">Production</a>
 </p>
 
+<p align="center">
+  <a href="docs/assets/verify-before-wire-demo.mp4"><img src="docs/assets/demo-thumbnail.png" alt="Watch the 3½-minute demo: a deepfake CFO caught live" width="80%"></a><br>
+  <sub><b><a href="docs/assets/verify-before-wire-demo.mp4">▶ Watch the demo</a></b> · 3½ minutes · the real app, end to end</sub>
+</p>
+
 <br>
 
 Finance teams are tricked into paying fraudsters by emails from a "CFO", cloned voices, fake video
