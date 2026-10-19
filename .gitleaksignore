@@ -1,0 +1,8 @@
+# Reviewed gitleaks findings that are not secrets. Each entry is one exact match (commit:file:rule:line);
+# anything new still fails the scan.
+# placeholder in the usage comment: FIREBASE_API_KEY=<web app apiKey>
+3c4a2cbd877c7daa0e716fc0c4836fd8207f7638:deploy.sh:generic-api-key:3
+# the EU's public download token for its sanctions file (base64 of 'token-2017'), published for everyone
+a9e87b0fb11ed6ed6b74f9c1dcc590d9f5ae176e:backend/app/config.py:generic-api-key:53
+# placeholder in an older README: FIREBASE_API_KEY=<web api key>
+a33129b57fd407fe730c5970d42dcc0079c8eeb7:README.md:generic-api-key:29

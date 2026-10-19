@@ -1,0 +1,11 @@
+# Local development database. Production uses deploy/docker-compose.yml or a managed PostgreSQL
+# (RDS/Aurora, Azure Database for PostgreSQL, Cloud SQL). These credentials are for this laptop only.
+services:
+  db:
+    image: postgres:16
+    container_name: vbw-postgres
+    environment: { POSTGRES_DB: vbw, POSTGRES_USER: vbw, POSTGRES_PASSWORD: vbw_dev_only }
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: [vbw_pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "vbw"], interval: 3s, retries: 20 }
+volumes: { vbw_pgdata: {} }

@@ -7,7 +7,7 @@ from app.agents.base import gstin_valid, iban_valid, lookalike_of, swift_valid
 from app.guard import redact, screen
 from app.models import Decision, Finding, Severity, SourceDoc
 from app.onboarding import parse_payments, parse_vendors
-from app.parsing import UnsupportedFile, _Labeler, parse_upload
+from app.parsing import UnsupportedFile, Labeler, parse_upload
 from app.policy import PolicySettings, Policy, build_facts, decide
 
 FAST = settings(max_examples=300, deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -24,7 +24,7 @@ def test_validators_never_crash(s):
 @given(st.binary(max_size=4000), st.sampled_from(["a.eml", "a.txt", "a.pdf", "a.png", "a.mp3"]))
 def test_parser_never_crashes(data, name):
     try:
-        parse_upload(name, None, data, _Labeler())
+        parse_upload(name, None, data, Labeler())
     except UnsupportedFile:
         pass
 

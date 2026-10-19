@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 420" width="1280" height="420" role="img" aria-label="Verify-Before-Wire: verify the request, not the voice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E7E0FF"/>
+      <stop offset=".45" stop-color="#F5EDFF"/>
+      <stop offset=".8" stop-color="#FFEDE2"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".62" r=".42">
+      <stop offset="0" stop-color="#FFD6AA" stop-opacity=".95"/>
+      <stop offset=".45" stop-color="#FFB4C8" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#B9AAFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="soft" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#533AFD"/>
+      <stop offset=".65" stop-color="#EA2261"/>
+      <stop offset="1" stop-color="#FF9A62"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#533AFD"/>
+      <stop offset=".6" stop-color="#EA2261"/>
+      <stop offset="1" stop-color="#FFB16B"/>
+    </linearGradient>
+    <clipPath id="frame"><rect width="1280" height="420" rx="28"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="420" fill="url(#sky)"/>
+    <rect width="1280" height="420" fill="url(#sun)"/>
+    <ellipse cx="190" cy="120" rx="260" ry="34" fill="#FFFFFF" opacity=".55"/>
+    <ellipse cx="1090" cy="170" rx="230" ry="30" fill="#FFFFFF" opacity=".5"/>
+    <path d="M0 300 140 230 260 280 410 190 560 260 720 170 880 250 1040 190 1280 270V420H0Z" fill="#CDBDF7"/>
+    <path d="M0 335 190 270 340 320 500 250 680 315 830 260 1000 320 1160 265 1280 300V420H0Z" fill="#B7A6F2" opacity=".9"/>
+    <path d="M0 370 160 330 360 368 560 320 740 360 940 330 1120 368 1280 340V420H0Z" fill="#DCCBFA"/>
+    <path d="M0 400 220 378 470 404 700 374 950 400 1180 380 1280 392V420H0Z" fill="#FFFFFF"/>
+  </g>
+  <g transform="translate(640 92)" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" text-anchor="middle">
+    <g transform="translate(-176 -24)">
+      <rect width="36" height="36" rx="10" fill="url(#mark)"/>
+      <path d="M11 18.5l5 5 10-11" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="22" y="2" font-size="26" font-weight="600" fill="#0D253D" letter-spacing="-.4">Verify-Before-Wire</text>
+    <text y="92" font-size="64" font-weight="300" fill="#0D253D" letter-spacing="-2.4">Verify the request.</text>
+    <text y="166" font-size="64" font-weight="300" fill="url(#soft)" letter-spacing="-2.4">Not the voice.</text>
+    <text y="214" font-size="19" fill="#273951">An AI-assisted checkpoint that investigates every payment before money leaves the company.</text>
+  </g>
+</svg>

@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     opensanctions_base: str = "https://api.opensanctions.org"
     ofac_sdn_url: str = "https://www.treasury.gov/ofac/downloads/sdn.csv"
     un_sanctions_url: str = "https://scsanctions.un.org/resources/xml/en/consolidated.xml"
+    eu_sanctions_url: str = ("https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/"
+                             "content?token=dG9rZW4tMjAxNw")   # the EU's public download token
+    uk_sanctions_url: str = "https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv"
+    sanctions_lists: str = "ofac,un,eu,uk"        # which official lists to screen against
+    sanctions_refresh_hours: float = 12.0
+    sanctions_cache_dir: Path = ROOT / "data" / "sanctions"   # snapshots survive restarts; "" disables
+    gleif_base: str = "https://api.gleif.org/api/v1"          # Global LEI Foundation: legal entities + BICs
+    vies_base: str = "https://ec.europa.eu/taxation_customs/vies/rest-api"   # EU VAT number validation
     ifsc_api_base: str = "https://ifsc.razorpay.com"
     http_timeout_s: float = 6.0
 
@@ -67,19 +75,32 @@ class Settings(BaseSettings):
     allow_dev_auth: bool = False
     firebase_project_id: str = ""                # defaults to google_cloud_project
     firebase_api_key: str = ""                   # public web config, served to the browser
-    firebase_auth_domain: str = ""
+    firebase_auth_domain: str = ""                  # defaults to <project>.firebaseapp.com
+    firebase_app_id: str = ""                    # web app id from Firebase Console (optional)
     allow_unverified_email: bool = False
     invite_days: int = 7
     rate_limit_per_minute: int = 60              # per tenant, case creation
 
     # --- App ----------------------------------------------------------------
-    max_upload_mb: int = 15
+    max_upload_mb: int = 20                      # per file; Gemini takes media inline up to ~20 MB
     max_files: int = 6
     demo_dir: Path = ROOT.parent / "demo"
     static_dir: Path = ROOT / "static"
     seed_file: Path = ROOT / "scripts" / "seed_data.json"
     prompt_version: str = "2026-10-13"
     lease_seconds: int = 150
+    metrics_enabled: bool = True                 # Prometheus /metrics (counts and latencies only; restrict at ingress)
+    # Real phone calls for AI verification calls (optional; without them the call runs in the browser)
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""                 # E.164, e.g. +6531234567
+    public_base_url: str = ""                    # https URL Twilio can reach, e.g. https://vbw.example.com
+    media_ai_review: bool = True                 # ask Gemini for an indicative deepfake review of voice/video
+    worker_enabled: bool = True                  # run the background worker inside the web process
+    worker_concurrency: int = 4                  # investigations at once, per worker process
+    worker_poll_seconds: float = 1.0
+    worker_grace_seconds: float = 8.0            # browser-submitted cases: time for the live view to claim them first
+    webhook_allow_insecure: bool = False         # allow http:// and private addresses (local development only)
     log_level: str = "INFO"
 
     @property

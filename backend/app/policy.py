@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 from .models import Decision, Finding, Severity, utcnow
 
 OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "exists", "contains"}
-AGENT_IDS = ["vendor", "domain", "history", "sanctions", "language"]
+AGENT_IDS = ["vendor", "domain", "history", "sanctions", "language", "registry", "media"]
 DECISION_RANK = {Decision.release: 0, Decision.callback: 1, Decision.hold: 2}
 Requirement = Literal["callback", "second_approver", "compliance_review"]
 
@@ -72,11 +72,16 @@ class PolicySettings(BaseModel):
     checks_enabled: dict[str, bool] = Field(default_factory=lambda: {a: True for a in AGENT_IDS})
     required_checks: list[str] = Field(default_factory=lambda: ["vendor", "sanctions"])
     fail_mode: Literal["hold", "callback"] = "hold"   # what a failed required check forces
+    # Straight-through processing for ERP payment runs: a RELEASE with no red flags, no requirements,
+    # no failed check and a score below this is released by the policy itself (audited). Off when None.
+    auto_release_below: int | None = Field(None, ge=1, le=100)
 
     @model_validator(mode="after")
     def _sane(self):
         if self.callback_at >= self.hold_at:
             raise ValueError("callback_at must be lower than hold_at")
+        if self.auto_release_below is not None and self.auto_release_below > self.callback_at:
+            raise ValueError("auto_release_below must not exceed callback_at")
         bad = set(self.required_checks) - set(AGENT_IDS)
         if bad:
             raise ValueError(f"unknown checks in required_checks: {sorted(bad)}")
@@ -106,7 +111,8 @@ class Policy(BaseModel):
         return self
 
     def content_hash(self) -> str:
-        body = json.dumps({"settings": self.settings.model_dump(mode="json"),
+        # exclude_none: settings added later as optional (None = off) leave older policies' hashes unchanged
+        body = json.dumps({"settings": self.settings.model_dump(mode="json", exclude_none=True),
                            "rules": [r.model_dump(mode="json", by_alias=True) for r in self.rules]},
                           sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(body.encode()).hexdigest()

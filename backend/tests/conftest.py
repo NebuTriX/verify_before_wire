@@ -40,13 +40,17 @@ class FakeFx:
 class FakeSanctions:
     name = "Sanctions (fake)"
 
-    async def screen(self, names, country=None):
+    def status(self):
         return []
+
+    async def screen_with_coverage(self, names, country=None):
+        return [], [{"key": "ofac", "label": "OFAC SDN (fake)", "published": "2026-10-17", "screened": True}]
 
 
 class FakeSources:
     def __init__(self):
         self.rdap, self.dns, self.fx, self.sanctions = FakeRdap(), FakeDns(), FakeFx(), FakeSanctions()
+        self.ifsc = self.gleif = self.vies = None      # registers off unless a test plugs a fake in
 
     async def aclose(self):
         pass
@@ -58,12 +62,19 @@ class FakeGemini:
     def text_part(self, text):
         return text
 
+    def status(self):
+        return {"state": "ok", "reason": None, "fix": None, "retry_in_s": 0, "mode": "fake", "model": "fake"}
+
     def bytes_part(self, data, mime):
         return f"<{mime} {len(data)} bytes>"
 
     async def json(self, schema, system, parts):
         text = "\n".join(p for p in parts if isinstance(p, str))
         name = schema.__name__
+        if name == "MediaReview":
+            return schema(synthetic_likelihood="unknown", observations=[])
+        if name == "CallAnalysis":
+            return schema(transcript="", answers=[])
         if name == "PaymentRequest":
             if "848-123456-838" in text:
                 return PaymentRequest(
@@ -109,10 +120,11 @@ def sources():
     return FakeSources()
 
 
-@pytest.fixture(params=["memory", "sql"])
+@pytest.fixture(params=["memory", "sql", "firestore"])
 def client(request, settings, sources, tmp_path):
-    """Every API test runs twice: in-memory store and a real SQL database (SQLite here,
-    PostgreSQL in production) through the same code path."""
+    """Every API test runs on each store through the same code path: in memory, a real SQL database
+    (SQLite here, PostgreSQL with VBW_TEST_DATABASE_URL) and Cloud Firestore (the emulator, only when
+    FIRESTORE_EMULATOR_HOST is set; each test gets its own project, so nothing leaks between tests)."""
     from fastapi.testclient import TestClient
 
     from app.blobs import FileBlobs
@@ -122,6 +134,14 @@ def client(request, settings, sources, tmp_path):
         from app.sqlstore import SqlStore
         url = os.getenv("VBW_TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{tmp_path}/vbw.db"
         store = SqlStore(url, FileBlobs(str(tmp_path / "blobs")))
+    elif request.param == "firestore":
+        if not os.getenv("FIRESTORE_EMULATOR_HOST"):
+            pytest.skip("Firestore emulator not running (set FIRESTORE_EMULATOR_HOST)")
+        import uuid
+
+        from app.store import FirestoreStore
+        fs_settings = settings.model_copy(update={"google_cloud_project": f"vbw-test-{uuid.uuid4().hex[:10]}"})
+        store = FirestoreStore(fs_settings, FileBlobs(str(tmp_path / "blobs")))
     else:
         store = MemoryStore()
     app.state.deps = Deps(settings=settings, store=store, sources=sources, gemini=FakeGemini())
@@ -129,6 +149,8 @@ def client(request, settings, sources, tmp_path):
         if request.param == "sql" and os.getenv("VBW_TEST_DATABASE_URL"):
             c.portal.call(store.purge_for_tests)   # shared PostgreSQL in CI: start each test clean
         yield c
+        if request.param == "sql":
+            c.portal.call(store.engine.dispose)    # close pooled connections on the loop that opened them
     del app.state.deps
 
 

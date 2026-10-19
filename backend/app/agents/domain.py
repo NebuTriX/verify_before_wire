@@ -17,6 +17,12 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
     s, src = ctx.settings, ctx.sources
     sender = ctx.sender_address()
     domain = addr_domain(sender)
+    if not domain and any(d.label == "erp_payment" for d in ctx.docs):
+        await emit(Finding(agent=NAME, code="ERP_ORIGIN", severity=Severity.info,
+                           title="Submitted by your ERP, not by email",
+                           detail="There is no email sender to verify; the payment came from your own system.",
+                           data_source="Payment request"))
+        return
     if not domain:
         await emit(Finding(agent=NAME, code="NO_SENDER", severity=Severity.low,
                            title="No sender address to verify",
@@ -114,7 +120,7 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
                                    excerpt=f"registration: {reg.registered_on:%Y-%m-%d}")],
                 data_source=src.rdap.name))
     except SourceUnavailable as e:
-        await emit(Finding(agent=NAME, code="RDAP_UNAVAILABLE", severity=Severity.low,
+        await emit(Finding(agent=NAME, code="RDAP_UNAVAILABLE", source_unavailable=True, severity=Severity.low,
                            title="Domain registry lookup unavailable",
                            detail=f"{e}. Domain age was not verified.", data_source=src.rdap.name))
 
@@ -144,5 +150,5 @@ async def run(ctx: AgentContext, emit: Emit) -> None:
                 evidence=[Evidence(source=src.dns.name, excerpt=d.dmarc[:120])],
                 data_source=src.dns.name))
     except SourceUnavailable as e:
-        await emit(Finding(agent=NAME, code="DNS_UNAVAILABLE", severity=Severity.low,
+        await emit(Finding(agent=NAME, code="DNS_UNAVAILABLE", source_unavailable=True, severity=Severity.low,
                            title="DNS lookup unavailable", detail=str(e), data_source=src.dns.name))

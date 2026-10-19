@@ -129,7 +129,7 @@ def test_fail_closed_when_sanctions_down(client, sources):
 
     async def down(*a, **k):
         raise SourceUnavailable("list unreachable")
-    sources.sanctions.screen = down
+    sources.sanctions.screen_with_coverage = down
     tid = make_workspace(client, team=False)
     _, ev = run_case(client, tid, "legit-invoice", who=OWNER)
     assert verdict_of(ev)["decision"] == "HOLD"   # balanced: sanctions is a required check

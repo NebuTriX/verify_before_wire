@@ -27,5 +27,15 @@
    "vendor_bank_change.eml"
   ],
   "expected": "HOLD"
+ },
+ {
+  "id": "ceo-video",
+  "title": "CFO \"video message\", SGD 480k",
+  "description": "A still photo with a synthetic voice-over, forwarded on chat. Voice & video forensics.",
+  "files": [
+   "ceo_video_message.mp4",
+   "ceo_video_message.transcript.txt"
+  ],
+  "expected": "HOLD"
  }
 ]

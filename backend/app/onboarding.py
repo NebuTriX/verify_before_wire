@@ -154,6 +154,39 @@ def sample_data(seed_file) -> tuple[list[Vendor], list[Payment]]:
     return [Vendor(**v) for v in d["vendors"]], [Payment(**p) for p in d["payments"]]
 
 
+def preview(vendors: list[Vendor], payments: list[Payment]) -> dict:
+    """What an import would add, plus integrity checks a finance team would ask for before
+    trusting it as the reference that payment requests are checked against."""
+    from statistics import median
+
+    def acct(a) -> str:
+        return (a.iban or a.account_number or "").replace(" ", "").replace("-", "")
+    by_vendor = {v.id: [p for p in payments if p.vendor_id == v.id] for v in vendors}
+    rows = []
+    for v in vendors:
+        ps = sorted(by_vendor[v.id], key=lambda p: p.paid_on)
+        rows.append({"id": v.id, "legal_name": v.legal_name, "country": v.country, "domains": v.domains,
+                     "callback_contact": v.callback_contact, "callback_phone": v.callback_phone, "currency": v.default_currency,
+                     "bank_accounts": [{"bank_name": a.bank_name, "account": a.iban or a.account_number, "swift_bic": a.swift_bic,
+                                        "country": a.country, "verified_on": a.verified_on} for a in v.bank_accounts],
+                     "payments": {"count": len(ps), "total": round(sum(p.amount for p in ps), 2),
+                                  "median": round(median([p.amount for p in ps]), 2) if ps else None,
+                                  "first": ps[0].paid_on if ps else None, "last": ps[-1].paid_on if ps else None}})
+    ids = [v.id for v in vendors]
+    known = {v.id: {acct(a) for a in v.bank_accounts} for v in vendors}
+    orphans = [p.id for p in payments if p.vendor_id not in known]
+    off_account = [p.id for p in payments if p.vendor_id in known and p.account_ref.replace("-", "").replace(" ", "") not in known[p.vendor_id]]
+    checks = [
+        (len(ids) == len(set(ids)), f"{len(ids)} vendors, no duplicate ids"),
+        (all(v.bank_accounts for v in vendors), "Every vendor has at least one verified bank account"),
+        (all(v.callback_phone for v in vendors), "Every vendor has a callback number on file"),
+        (not orphans, f"All {len(payments)} payments belong to a vendor in the list" if not orphans else f"{len(orphans)} payments name an unknown vendor"),
+        (not off_account, "Every past payment went to an account on file" if not off_account else f"{len(off_account)} payments went to an account not on file"),
+    ]
+    return {"vendors": rows, "payment_count": len(payments), "checks": [{"ok": ok, "text": t} for ok, t in checks],
+            "valid": all(ok for ok, _ in checks)}
+
+
 STEPS = [
     ("workspace", "Create your workspace"),
     ("policy", "Choose a policy template"),

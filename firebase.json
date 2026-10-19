@@ -1,0 +1,20 @@
+{
+  "hosting": {
+    "public": "firebase/public",
+    "ignore": ["**/.*"],
+    "rewrites": [
+      { "source": "**", "run": { "serviceId": "verify-before-wire", "region": "asia-south1" } }
+    ],
+    "headers": [
+      { "source": "**", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  },
+  "firestore": {
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "emulators": {
+    "firestore": { "host": "127.0.0.1", "port": 8085 },
+    "ui": { "enabled": false }
+  }
+}

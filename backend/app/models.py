@@ -47,6 +47,7 @@ class PaymentRequest(BaseModel):
     requester_email: str | None = None
     requester_claimed_role: str | None = Field(None, description="e.g. CFO, vendor billing")
     vendor_name: str | None = Field(None, description="Company that should receive the money")
+    vendor_id: str | None = Field(None, description="Vendor id in the customer's ERP (e.g. SAP LIFNR); only set by ERP submissions")
     beneficiary_name: str | None = Field(None, description="Account holder name on the bank details")
     beneficiary_bank: str | None = None
     beneficiary_country: str | None = Field(None, description="ISO-3166 alpha-2 if known")
@@ -55,6 +56,7 @@ class PaymentRequest(BaseModel):
     swift_bic: str | None = None
     ifsc: str | None = Field(None, description="Indian bank branch code (11 chars), if present")
     gstin: str | None = Field(None, description="Indian GST number of the invoicing entity (15 chars), if present")
+    vat_number: str | None = Field(None, description="EU VAT number of the invoicing entity incl. country prefix, if present")
     amount: float | None = None
     currency: str | None = Field(None, description="ISO-4217 code")
     invoice_number: str | None = None
@@ -97,6 +99,9 @@ class Finding(BaseModel):
     data_source: str                 # where the fact came from, e.g. "RDAP (rdap.org)"
     points: int = 0
     meta: dict[str, Any] = Field(default_factory=dict)   # structured detail for display, e.g. both domains
+    # The check's own data source could not answer, so the check did not really run: the policy treats
+    # it as a failed check (fail-closed for required checks). Optional AI reviews never set this.
+    source_unavailable: bool = False
 
     def model_post_init(self, _: Any) -> None:
         if not self.points:
@@ -160,12 +165,57 @@ class CallbackRecord(BaseModel):
     at: datetime = Field(default_factory=utcnow)
 
 
+class CallAnswer(BaseModel):
+    """One question of an AI verification call and what the vendor said. An answer only counts when
+    `verified`: its quote was found word for word in the transcript of the recording."""
+    question: str
+    decisive: bool = True              # identity / request / bank-account questions decide the outcome
+    answer: Literal["yes", "no", "unclear"] = "unclear"
+    quote: str | None = None
+    verified: bool = False
+
+
+class AiCall(BaseModel):
+    """An outbound verification call placed by the AI agent to the number in the vendor master."""
+    id: str
+    vendor_id: str
+    vendor_name: str
+    contact: str
+    number: str
+    number_source: Literal["vendor_master"] = "vendor_master"
+    channel: Literal["browser", "twilio"] = "browser"
+    status: Literal["dialing", "in_progress", "analysing", "completed", "failed"] = "dialing"
+    answers: list[CallAnswer] = Field(default_factory=list)
+    recording_uri: str | None = None
+    recording_sha256: str | None = None
+    recording_mime: str | None = None
+    duration_s: float | None = None
+    transcript: str | None = None
+    transcript_by: Literal["gemini", "browser", "twilio"] | None = None
+    second_transcript: list[str] = Field(default_factory=list)   # per-question text from the browser / phone network
+    second_transcript_agreement: float | None = None   # word overlap between the two transcripts, 0..1
+    # How the answers were checked: "cross_checked" = Gemini transcript + an independent second transcript
+    # that must agree; "ai_transcript" = Gemini transcript only; "single_transcript" = only the browser's or
+    # phone network's own transcript (consistent with itself, not independently verified).
+    verification: Literal["cross_checked", "ai_transcript", "single_transcript"] | None = None
+    outcome: Literal["confirmed", "denied", "unclear"] | None = None
+    outcome_basis: str | None = None
+    provider_ref: str | None = None
+    error: str | None = None
+    started_by: str = ""
+    started_at: datetime = Field(default_factory=utcnow)
+    completed_at: datetime | None = None
+    accepted_by: str | None = None
+    accepted_at: datetime | None = None
+
+
 class Workflow(BaseModel):
     state: Literal["investigating", "awaiting_decision", "awaiting_second_approval",
                    "released", "held", "rejected"] = "investigating"
     requirements: list[str] = Field(default_factory=list)
     approvals: list[Approval] = Field(default_factory=list)
     callbacks: list[CallbackRecord] = Field(default_factory=list)
+    ai_calls: list[AiCall] = Field(default_factory=list)
     label: Literal["fraud", "legit"] | None = None   # confirmed outcome, feeds policy simulation
 
 
@@ -221,6 +271,7 @@ class Vendor(BaseModel):
     country: str
     domains: list[str]
     gstin: str | None = None
+    vat_number: str | None = None      # EU VAT registration (SAP STCEG)
     bank_accounts: list[BankAccount]
     callback_contact: str
     callback_phone: str                # from the vendor master, never from the request

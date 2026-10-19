@@ -9,39 +9,26 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field, ValidationError
 
-from . import onboarding, workflow
+from . import integrations, metrics, onboarding, ratelimit, trace, voice, webhooks, workflow
 from .audit import verify_chain
 from .auth import Access, access, assert_safe_auth_mode, principal_from
 from .config import Settings, get_settings
+from .deps import build_deps
 from .models import Case, CaseStatus, Event, utcnow
-from .orchestrator import TERMINAL, Deps, Publisher, investigate
-from .parsing import AUDIO, DOCS, UnsupportedFile, _Labeler, parse_upload
+from .orchestrator import AGENTS, TERMINAL, Deps, start_case
+from .parsing import DOCS, MEDIA, UnsupportedFile, Labeler, parse_upload
 from .policy import TEMPLATES, Policy, PolicySettings, Rule, policy_from_template, simulate
 from .report import build_html, build_pdf
-from .sources import Sources
-from .store import build_store
 from .tenancy import ApiKey, Invite, Member, Perm, Role, Tenant, TenantSettings, hash_secret, new_secret
 
 log = logging.getLogger("vbw")
-
-
-def build_deps(s: Settings) -> Deps:
-    gemini = None
-    if (s.gemini_mode == "vertex" and (s.gemini_project or s.google_cloud_project)) or \
-            (s.gemini_mode == "api_key" and s.gemini_api_key):
-        try:
-            from .gemini import Gemini
-            gemini = Gemini(s)
-        except Exception as e:
-            log.warning("Gemini disabled: %s", e)
-    return Deps(settings=s, store=build_store(s), sources=Sources.build(s), gemini=gemini)
 
 
 @asynccontextmanager
@@ -49,23 +36,47 @@ async def lifespan(app: FastAPI):
     s = get_settings()
     logging.basicConfig(level=s.log_level, format='{"severity":"%(levelname)s","logger":"%(name)s","message":"%(message)s"}')
     assert_safe_auth_mode(s.auth_mode, s.allow_dev_auth)
-    warm = None
+    warm = worker = None
+    stop = asyncio.Event()
     if not hasattr(app.state, "deps"):
         app.state.deps = build_deps(s)
         warm = asyncio.create_task(app.state.deps.sources.sanctions.warm())
+        if app.state.deps.gemini:          # learn at startup whether AI answers (credits, quota, key)
+            app.state.ai_probe = asyncio.create_task(app.state.deps.gemini.probe())
+        if s.worker_enabled:
+            from .worker import run_worker
+            worker = asyncio.create_task(run_worker(app.state.deps, stop))
     yield
+    stop.set()
+    if worker:
+        await asyncio.wait([worker], timeout=10)
     if warm:
         warm.cancel()
     await app.state.deps.sources.aclose()
 
 
-app = FastAPI(title="Verify-Before-Wire", version="2.0.0", lifespan=lifespan)
+API_DESCRIPTION = """
+An AI-assisted checkpoint that investigates a payment request **before money leaves the company**.
+
+* **Payment checks**: upload an email, voice note or invoice (`/cases`), or send structured ERP data
+  (`/erp/payments`, `/erp/payment-runs`) — SAP F110 fields map 1:1, see `docs/sap-integration.md`.
+* **Live stream**: `/cases/{id}/stream` is a server-sent event stream of every check and data-source lookup.
+* **Decisions** come from your versioned policy, never from the AI. Every action lands in a hash-chained,
+  append-only audit log (`/audit`, `/audit/verify`).
+
+Authenticate with `Authorization: Bearer <API key>` (Setup → API keys) or a signed-in session.
+"""
+TAGS = [{"name": "ERP integration", "description": "Structured payments, payment runs, master-data sync (SAP)."},
+        {"name": "Webhooks", "description": "Signed callbacks to your ERP (HMAC-SHA256, retried ~4 h)."},
+        {"name": "Data sources", "description": "Freshness and provenance of every register used."}]
+app = FastAPI(title="Verify-Before-Wire API", version="2.0.0", lifespan=lifespan, description=API_DESCRIPTION,
+              openapi_tags=TAGS, docs_url=None, redoc_url=None)
 
 MAX_REQUEST_BYTES = 110 * 1024 * 1024
 CSP = ("default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; "
        "style-src 'self' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; "
-       "frame-src https://*.firebaseapp.com blob:; "
+       "frame-src https://*.firebaseapp.com https://*.web.app blob:; "   # Firebase sign-in frame on either auth domain
        "connect-src 'self' https://*.googleapis.com; frame-ancestors 'none'; base-uri 'none'")
 
 
@@ -85,12 +96,15 @@ async def security_and_logging(request: Request, call_next):
     resp.headers.update({"X-Request-ID": rid, "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
                          "Referrer-Policy": "no-referrer",
                          "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-                         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+                         "Permissions-Policy": "camera=(), microphone=(self), geolocation=(), payment=()",   # mic: AI verification calls
                          "Cross-Origin-Opener-Policy": "same-origin-allow-popups"})
     if request.url.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
     elif request.url.path.startswith("/assets") or request.url.path == "/":
         resp.headers["Cache-Control"] = "no-cache"   # revalidate (ETag), so a deploy never leaves a stale UI
+    route = request.scope.get("route")
+    if route is not None:
+        metrics.HTTP.labels(request.method, getattr(route, "path", "other"), str(resp.status_code)).observe(time.perf_counter() - t0)
     if not request.url.path.startswith("/assets"):
         log.info(json.dumps({"rid": rid, "method": request.method, "path": request.url.path,
                              "status": resp.status_code, "ms": int((time.perf_counter() - t0) * 1000)}))
@@ -132,11 +146,85 @@ async def healthz(request: Request):
             "store": d.settings.store_backend, "auth": d.settings.auth_mode}
 
 
+DOCS_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://fastapi.tiangolo.com; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+
+
+@app.get("/docs", include_in_schema=False)
+async def api_docs():
+    """Interactive API reference. Swagger UI loads from a CDN, so this page alone gets a wider CSP."""
+    from fastapi.openapi.docs import get_swagger_ui_html
+    r = get_swagger_ui_html(openapi_url="/openapi.json", title="Verify-Before-Wire API")
+    r.headers["Content-Security-Policy"] = DOCS_CSP
+    return r
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(request: Request):
+    if not deps(request).settings.metrics_enabled:
+        raise HTTPException(404, "Not found.")
+    body, ctype = metrics.render()
+    return Response(body, media_type=ctype)
+
+
+@app.get("/readyz")
+async def readyz(request: Request):
+    """Readiness for load balancers / Kubernetes: the database must answer."""
+    try:
+        await asyncio.wait_for(deps(request).store.ping(), 3)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": type(e).__name__}, status_code=503)
+    return {"ok": True}
+
+
+@app.get("/api/status")
+async def service_status(request: Request):
+    """Health of every dependency, for the status banner. Degraded services never block a check:
+    the decision falls back (pattern reading, cached lists) or fails closed (HOLD) and says so."""
+    await principal_from(request)
+    d = deps(request)
+    t0 = time.perf_counter()
+    try:
+        await asyncio.wait_for(d.store.ping(), 3)
+        db = {"state": "ok", "ms": int((time.perf_counter() - t0) * 1000)}
+    except Exception as e:
+        db = {"state": "error", "reason": f"database unreachable ({type(e).__name__})"}
+    ai = d.gemini.status() if d.gemini else {"state": "off", "reason": "No Gemini credentials configured",
+                                             "fix": None, "mode": d.settings.gemini_mode}
+    lists = d.sources.sanctions.status()
+    now = time.time()
+    recent = {k: {**v, "ago_s": int(now - v["at"])} for k, v in trace.LAST.items() if now - v["at"] < 3600}
+    degraded = [n for n, st in (("database", db["state"]), ("ai", ai["state"])) if st in ("error", "paused")]
+    degraded += [f"sanctions:{x['key']}" for x in lists if not x.get("loaded")]
+    degraded += [f"source:{k}" for k, v in recent.items() if v["status"] == "error" and k != "gemini"]
+    return {"ok": not degraded, "degraded": degraded, "database": db, "ai": ai,
+            "sanctions": [{k: x.get(k) for k in ("key", "label", "loaded", "refreshing", "error", "published")} for x in lists],
+            "sources": recent, "auth": {"mode": d.settings.auth_mode,
+                                        "firebase_project": d.settings.firebase_project_id or d.settings.google_cloud_project or None},
+            "store": d.settings.store_backend}
+
+
+@app.post("/api/t/{tid}/ai/retry")
+async def ai_retry(tid: str, request: Request):
+    """After topping up credits: clear the pause and ask Gemini once whether it answers now."""
+    a = await access(request, tid, Perm.tenant_manage)
+    d = deps(request)
+    if not d.gemini:
+        raise HTTPException(409, "AI is not configured on this installation.")
+    st = await d.gemini.probe()
+    await d.store.audit(tid, a.principal.actor, "ai.retried", f"tenant/{tid}", {"state": st["state"]})
+    return st
+
+
 @app.get("/api/config")
 async def public_config(request: Request):
     s = deps(request).settings
-    return {"auth_mode": s.auth_mode, "firebase": {"apiKey": s.firebase_api_key, "authDomain": s.firebase_auth_domain,
-                                                   "projectId": s.firebase_project_id or s.google_cloud_project}}
+    pid = s.firebase_project_id or s.google_cloud_project
+    return {"checks": {a.NAME: a.TITLE for a in AGENTS}, "sources": trace.CATALOG,
+            "auth_mode": s.auth_mode, "allow_unverified_email": s.allow_unverified_email,
+            "firebase": {"apiKey": s.firebase_api_key, "authDomain": s.firebase_auth_domain or (f"{pid}.firebaseapp.com" if pid else ""),
+                         "projectId": pid, "appId": s.firebase_app_id}}
 
 
 @app.get("/api/templates")
@@ -192,14 +280,32 @@ async def create_workspace(request: Request, body: NewWorkspace):
     return {"tenant_id": tid}
 
 
+def _mask_email(e: str) -> str:
+    name, _, domain = e.partition("@")
+    return f"{name[:2]}{'•' * max(1, len(name) - 2)}@{domain}"
+
+
+@app.get("/api/invites/preview")
+async def preview_invite(request: Request, token: str):
+    """What an invite link is for, shown on the sign-in page before signing in. The token itself is
+    the secret; the invited address is partly masked."""
+    d = deps(request)
+    inv = await d.store.get_invite(hash_secret(token))
+    if not inv or inv.get("accepted_by") or datetime.fromisoformat(str(inv["expires_at"])) < utcnow():
+        return {"valid": False}
+    t = await d.store.get_tenant(inv["tenant_id"])
+    return {"valid": True, "workspace": t.name if t else "a workspace", "role": inv["role"],
+            "email": _mask_email(inv["email"]), "expires_at": inv["expires_at"]}
+
+
 @app.post("/api/invites/accept")
 async def accept_invite(request: Request, token: str = Body(..., embed=True)):
     d, p = deps(request), await principal_from(request)
-    inv = await d.store.accept_invite(hash_secret(token), p.uid)
-    if not inv:
+    result, inv = await d.store.accept_invite(hash_secret(token), p.uid, p.email)
+    if result == "invalid":
         raise HTTPException(404, "This invite is invalid, used or expired. Ask for a new one.")
-    if inv["email"].lower() != p.email.lower():
-        raise HTTPException(403, f"This invite is for {inv['email']}. Sign in with that address.")
+    if result == "wrong_email":
+        raise HTTPException(403, f"This invite is for {_mask_email(inv['email'])}. Sign out and sign in with that address.")
     t = await d.store.get_tenant(inv["tenant_id"])
     await d.store.put_member(t.id, Member(uid=p.uid, email=p.email, role=Role(inv["role"]),
                                           added_by=inv["created_by"]), t.name)
@@ -256,6 +362,18 @@ async def import_csv(tid: str, kind: str, request: Request, file: UploadFile = F
             "note": "Nothing was imported: fix the errors and upload again." if errors else ""}
 
 
+@app.get("/api/t/{tid}/sample-data/preview")
+async def preview_sample(tid: str, request: Request):
+    """Show exactly what "Use sample data" would add, with integrity checks, before anything is saved."""
+    await access(request, tid, Perm.data_import)
+    d = deps(request)
+    if not d.settings.demo_enabled:
+        raise HTTPException(404, "Sample data is disabled on this installation.")
+    vendors, payments = onboarding.sample_data(d.settings.seed_file)
+    existing = {v.id for v in await d.store.list_vendors(tid)}
+    return {**onboarding.preview(vendors, payments), "already_loaded": sum(v.id in existing for v in vendors)}
+
+
 @app.post("/api/t/{tid}/sample-data")
 async def import_sample(tid: str, request: Request):
     a = await access(request, tid, Perm.data_import)
@@ -263,10 +381,20 @@ async def import_sample(tid: str, request: Request):
     if not d.settings.demo_enabled:
         raise HTTPException(404, "Sample data is disabled on this installation.")
     vendors, payments = onboarding.sample_data(d.settings.seed_file)
+    if not onboarding.preview(vendors, payments)["valid"]:
+        raise HTTPException(422, "The sample data failed its integrity checks and was not imported.")
     await d.store.import_vendors(tid, vendors)
     await d.store.import_payments(tid, payments)
-    await d.store.audit(tid, a.principal.actor, "import.sample", f"tenant/{tid}", {})
-    return {"vendors": len(vendors), "payments": len(payments)}
+    # Read the sample back from the database, so the confirmation reflects stored data, not intentions.
+    sample_vendors, sample_payments = {v.id for v in vendors}, {p.id for p in payments}
+    stored = [v for v in await d.store.list_vendors(tid) if v.id in sample_vendors]
+    stored_payments = 0
+    for vid in sample_vendors:
+        stored_payments += sum(p.id in sample_payments for p in await d.store.payments_for_vendor(tid, vid))
+    await d.store.audit(tid, a.principal.actor, "import.sample", f"tenant/{tid}",
+                        {"vendors": len(vendors), "payments": len(payments)})
+    return {"vendors": len(vendors), "payments": len(payments), "stored_vendors": len(stored),
+            "stored_payments": stored_payments, "store": d.settings.store_backend}
 
 
 @app.get("/api/t/{tid}/vendors")
@@ -329,8 +457,9 @@ async def api_keys(tid: str, request: Request):
 async def create_api_key(tid: str, request: Request, name: str = Body(..., embed=True, min_length=2, max_length=60),
                          role: Role = Body(Role.clerk, embed=True)):
     a = await access(request, tid, Perm.apikeys_manage)
-    if role not in (Role.clerk, Role.analyst, Role.auditor):
-        raise HTTPException(422, "Integrations may submit and read cases only (clerk, analyst or auditor).")
+    if role not in (Role.clerk, Role.analyst, Role.auditor, Role.integration):
+        raise HTTPException(422, "API keys can submit and read cases and sync data (clerk, analyst, auditor or "
+                                 "integration), never release payments.")
     prefix = uuid.uuid4().hex[:12]
     raw, h = new_secret(f"vbw_{prefix}")
     key = ApiKey(id=prefix, name=name, prefix=prefix, key_hash=hash_secret(raw), role=role, created_by=a.principal.uid)
@@ -443,18 +572,6 @@ async def review_policy(tid: str, version: int, verdict: str, request: Request,
 
 
 # ================================================================= cases ====
-_buckets: dict[str, tuple[float, float]] = {}
-
-
-def _rate_limit(tid: str, per_min: int):
-    now = time.monotonic()
-    tokens, last = _buckets.get(tid, (per_min, now))
-    tokens = min(per_min, tokens + (now - last) * per_min / 60)
-    if tokens < 1:
-        raise HTTPException(429, "Too many checks in the last minute. Try again shortly.")
-    _buckets[tid] = (tokens - 1, now)
-
-
 async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes]], scenario: str | None = None,
                     idem: str | None = None, external_ref: str | None = None) -> tuple[Case, bool]:
     s, tid = d.settings, a.tenant_id
@@ -464,7 +581,7 @@ async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes
         raise HTTPException(422, "external_ref is too long.")
     if idem and (existing := await d.store.find_case_by_idempotency(tid, idem)):
         return existing, False
-    _rate_limit(tid, s.rate_limit_per_minute)
+    ratelimit.charge(tid, s.rate_limit_per_minute)
     t = await d.store.get_tenant(tid)
     if not t.active_policy_version:
         raise HTTPException(409, "Choose a policy before running checks.")
@@ -474,7 +591,7 @@ async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes
         raise HTTPException(400, f"Upload at most {s.max_files} files.")
     case = Case(id="c_" + uuid.uuid4().hex[:12], tenant_id=tid, created_by=a.principal.uid, scenario=scenario,
                 idempotency_key=idem, external_ref=external_ref)
-    label = _Labeler()
+    label = Labeler()
     for name, mime, data in files:
         if len(data) > s.max_upload_mb * 1024 * 1024:
             raise HTTPException(413, f"{name} is larger than {s.max_upload_mb} MB.")
@@ -491,28 +608,24 @@ async def _new_case(d: Deps, a: Access, files: list[tuple[str, str | None, bytes
     return case, True
 
 
+async def _read_uploads(s: Settings, files: list[UploadFile]) -> list[tuple[str, str | None, bytes]]:
+    """Enforce the file-count and per-file size limits while reading, before anything is stored."""
+    if len(files) > s.max_files:
+        raise HTTPException(400, f"Upload at most {s.max_files} files.")
+    return [(f.filename or "upload", f.content_type, await read_limited(f, s.max_upload_mb * 1024 * 1024)) for f in files]
+
+
 @app.post("/api/t/{tid}/cases", status_code=201)
 async def create_case(tid: str, request: Request, files: list[UploadFile] = File(...),
                       external_ref: str | None = Form(None)):
     a = await access(request, tid, Perm.case_create)
-    lim = deps(request).settings.max_upload_mb * 1024 * 1024
-    if len(files) > deps(request).settings.max_files:
-        raise HTTPException(400, f"Upload at most {deps(request).settings.max_files} files.")
-    payload = [(f.filename or "upload", f.content_type, await read_limited(f, lim)) for f in files]
+    payload = await _read_uploads(deps(request).settings, files)
     case, _ = await _new_case(deps(request), a, payload, idem=request.headers.get("idempotency-key"),
                               external_ref=external_ref)
     return {"case_id": case.id, "inputs": [x.label for x in case.sources]}
 
 
-async def _run_owned(d: Deps, case: Case, queue: asyncio.Queue | None) -> asyncio.Task | None:
-    if not await d.store.try_claim(case.tenant_id, case.id, d.settings.lease_seconds):
-        return None
-    fresh = await d.store.get_case(case.tenant_id, case.id)
-    t = await d.store.get_tenant(case.tenant_id)
-    pol = await d.store.active_policy(case.tenant_id)
-    prior = await d.store.events_after(case.tenant_id, case.id, 0)
-    pub = Publisher(d.store, case.tenant_id, case.id, prior[-1].seq if prior else 0, queue)
-    return asyncio.create_task(investigate(fresh, t, pol, d, pub))
+SYNC_WAIT_S = 120      # how long POST /checks waits for a recommendation before returning the running case
 
 
 @app.post("/api/t/{tid}/checks")
@@ -521,23 +634,22 @@ async def check_sync(tid: str, request: Request, files: list[UploadFile] = File(
     """For integrations: submit and wait for the recommendation (typically 10-30 s)."""
     a = await access(request, tid, Perm.case_create)
     d = deps(request)
-    if len(files) > d.settings.max_files:
-        raise HTTPException(400, f"Upload at most {d.settings.max_files} files.")
-    payload = [(f.filename or "upload", f.content_type, await read_limited(f, d.settings.max_upload_mb * 1024 * 1024))
-               for f in files]
+    payload = await _read_uploads(d.settings, files)
     case, new = await _new_case(d, a, payload, idem=request.headers.get("idempotency-key"), external_ref=external_ref)
-    if new and (task := await _run_owned(d, case, None)):
-        await asyncio.wait_for(task, timeout=120)
-    for _ in range(300):
-        case = await d.store.get_case(tid, case.id)
-        if case.status in (CaseStatus.completed, CaseStatus.failed):
-            break
+    if new and (task := await start_case(d, case.tenant_id, case.id, None)):
+        await asyncio.wait({task}, timeout=SYNC_WAIT_S)       # wait, never cancel: it finishes in the background
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + SYNC_WAIT_S
+    while case.status not in (CaseStatus.completed, CaseStatus.failed) and loop.time() < deadline:
         await asyncio.sleep(0.4)
-    return _case_out(case)
+        case = await d.store.get_case(tid, case.id)
+    return _case_out(case)        # status "running" if still in progress: poll GET /cases/{id}
 
 
 def _case_out(c: Case) -> dict:
-    return c.model_dump(mode="json", exclude={"sources": {"__all__": {"storage_uri"}}})
+    # internal storage paths stay on the server (inputs and call recordings are served by their own endpoints)
+    return c.model_dump(mode="json", exclude={"sources": {"__all__": {"storage_uri"}},
+                                              "workflow": {"ai_calls": {"__all__": {"recording_uri"}}}})
 
 
 @app.get("/api/t/{tid}/cases")
@@ -570,13 +682,14 @@ async def case_source(tid: str, cid: str, label: str, request: Request):
     doc = next((s for s in c.sources if s.label == label), None) if c else None
     if not doc or not doc.storage_uri:
         raise HTTPException(404, "Input not found.")
-    if doc.mime_type not in AUDIO | DOCS:
-        raise HTTPException(415, "Only voice notes, PDFs and images can be opened here.")
+    if doc.mime_type not in MEDIA | DOCS:
+        raise HTTPException(415, "Only voice notes, videos, PDFs and images can be opened here.")
     data = await d.store.get_blob(doc.storage_uri)
     safe_name = re.sub(r"[^\w.-]", "_", doc.filename)[-120:]
     return Response(data, media_type=doc.mime_type, headers={
         "Content-Disposition": f'inline; filename="{safe_name}"',
-        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; media-src 'self'"})
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; media-src 'self'",
+        "Accept-Ranges": "none"})
 
 
 def _sse(ev: Event) -> str:
@@ -594,12 +707,13 @@ async def stream(tid: str, cid: str, request: Request, replay: int = 0):
 
     async def gen():
         yield "retry: 2000\n\n"
-        if replay and case.scenario and d.settings.demo_enabled:
+        if replay and case.scenario and d.settings.demo_enabled and \
+                await d.store.try_claim(tid, cid, d.settings.lease_seconds):
             async for chunk in _replay(d, case):
                 yield chunk
             return
         q: asyncio.Queue = asyncio.Queue()
-        if task := await _run_owned(d, case, q):
+        if task := await start_case(d, case.tenant_id, case.id, q):
             while True:
                 try:
                     ev = await asyncio.wait_for(q.get(), timeout=15)
@@ -727,7 +841,12 @@ async def case_action(tid: str, cid: str, request: Request, body: ActionIn):
     await d.store.audit(tid, a.principal.actor, f"case.{body.action}", f"case/{cid}",
                         {"state": state, "reason": body.reason,
                          "override": bool(case.verdict and case.verdict.decision.value == "HOLD" and body.action == "release")})
+    await webhooks.emit(d.store, tid, "case.decided", case)
     return {"state": state, "workflow": case.workflow.model_dump(mode="json")}
+
+
+app.include_router(integrations.router)
+app.include_router(voice.router)
 
 
 # ================================================================== audit ====

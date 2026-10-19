@@ -15,6 +15,8 @@ from .models import SourceDoc
 
 AUDIO = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg", "audio/webm",
          "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/flac"}
+VIDEO = {"video/mp4", "video/quicktime", "video/webm", "video/x-matroska", "video/x-m4v"}
+MEDIA = AUDIO | VIDEO          # what the voice & video forensics check analyses
 DOCS = {"application/pdf", "image/png", "image/jpeg", "image/webp"}
 TEXT = {"text/plain", "message/rfc822"}
 EXT_MIME = {
@@ -22,8 +24,9 @@ EXT_MIME = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
     ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".webm": "audio/webm",
     ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac",
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/x-m4v", ".mkv": "video/x-matroska",
 }
-ALLOWED = AUDIO | DOCS | TEXT
+ALLOWED = MEDIA | DOCS | TEXT
 
 
 def pdf_text(data: bytes) -> str | None:
@@ -61,6 +64,8 @@ def sha256(b: bytes) -> str:
 def _kind_label(mime: str, filename: str) -> str:
     if mime in AUDIO:
         return "voice_note"
+    if mime in VIDEO:
+        return "video_message"
     if mime == "message/rfc822":
         return "email"
     if mime in DOCS:
@@ -68,7 +73,7 @@ def _kind_label(mime: str, filename: str) -> str:
     return "transcript" if "transcript" in filename.lower() else "message"
 
 
-class _Labeler:
+class Labeler:
     def __init__(self):
         self.counts: dict[str, int] = {}
 
@@ -102,7 +107,7 @@ MAX_DEPTH, MAX_PARTS = 2, 10
 
 
 def parse_upload(filename: str, declared_mime: str | None, data: bytes,
-                 label: _Labeler, depth: int = 0) -> list[tuple[SourceDoc, bytes]]:
+                 label: Labeler, depth: int = 0) -> list[tuple[SourceDoc, bytes]]:
     if depth > MAX_DEPTH:
         raise NestedTooDeep(f"{filename}: emails nested more than {MAX_DEPTH} levels deep are not accepted")
     filename = re.sub(r"[^\w.\- ›]", "_", filename)[:200] or "upload"

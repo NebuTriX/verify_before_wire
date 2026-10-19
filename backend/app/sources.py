@@ -3,20 +3,24 @@ cache and raises SourceUnavailable on failure so agents can report it honestly."
 from __future__ import annotations
 
 import asyncio
-import csv
-import io
 import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import dns.asyncresolver
 import dns.exception
 import dns.resolver
 import httpx
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, process
 
 from .config import Settings
+from .sanctions_lists import ListSpec, SanctionsLists, normalise, parse_eu, parse_ofac, parse_uk, parse_un
+from .trace import cache_hit, traced
+
+if TYPE_CHECKING:
+    from .registries import GleifClient, ViesClient
 
 log = logging.getLogger(__name__)
 UA = {"User-Agent": "verify-before-wire/1.0 (payment fraud checkpoint)"}
@@ -26,13 +30,16 @@ class SourceUnavailable(Exception):
     pass
 
 
-class _TTLCache:
+class TTLCache:
     def __init__(self, ttl: float):
         self.ttl, self.data = ttl, {}
 
     def get(self, k):
         v = self.data.get(k)
-        return v[1] if v and time.monotonic() - v[0] < self.ttl else None
+        if v and time.monotonic() - v[0] < self.ttl:
+            cache_hit()
+            return v[1]
+        return None
 
     def put(self, k, v):
         self.data[k] = (time.monotonic(), v)
@@ -59,8 +66,11 @@ class RdapClient:
     name = "RDAP (rdap.org)"
 
     def __init__(self, s: Settings, http: httpx.AsyncClient):
-        self.base, self.http, self.cache = s.rdap_base.rstrip("/"), http, _TTLCache(3600)
+        self.base, self.http, self.cache = s.rdap_base.rstrip("/"), http, TTLCache(3600)
 
+    @traced("rdap", lambda domain: domain.lower().strip("."),
+            lambda r: (f"registered {r.registered_on:%d %b %Y} ({r.age_days} days)" if r.registered_on
+                       else "registered, no creation date") if r.found else "not registered")
     async def lookup(self, domain: str) -> DomainRegistration:
         domain = domain.lower().strip(".")
         if (hit := self.cache.get(domain)) is not None:
@@ -112,7 +122,7 @@ class DnsClient:
     def __init__(self, s: Settings):
         self.resolver = dns.asyncresolver.Resolver()
         self.resolver.lifetime = s.http_timeout_s
-        self.cache = _TTLCache(900)
+        self.cache = TTLCache(900)
 
     async def _txt(self, name: str) -> list[str]:
         try:
@@ -121,6 +131,9 @@ class DnsClient:
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
             return []
 
+    @traced("dns", lambda domain: domain.lower().strip("."),
+            lambda d: ", ".join([f"{len(d.mx)} MX", "SPF" if d.spf else "no SPF",
+                                 f"DMARC p={d.dmarc_policy}" if d.dmarc else "no DMARC"]) if d.exists else "no such domain")
     async def inspect(self, domain: str) -> DomainDns:
         domain = domain.lower().strip(".")
         if (hit := self.cache.get(domain)) is not None:
@@ -149,8 +162,10 @@ class FxClient:
     name = "ECB reference rates (Frankfurter)"
 
     def __init__(self, s: Settings, http: httpx.AsyncClient):
-        self.base, self.http, self.cache = s.fx_api_base.rstrip("/"), http, _TTLCache(3600)
+        self.base, self.http, self.cache = s.fx_api_base.rstrip("/"), http, TTLCache(3600)
 
+    @traced("fx", lambda f, t: None if f.upper() == t.upper() else f"{f.upper()} → {t.upper()}",
+            lambda r: f"rate {r:.4f}")
     async def rate(self, from_ccy: str, to_ccy: str) -> float:
         from_ccy, to_ccy = from_ccy.upper(), to_ccy.upper()
         if from_ccy == to_ccy:
@@ -182,8 +197,10 @@ class IfscClient:
     name = "IFSC directory (ifsc.razorpay.com, RBI data)"
 
     def __init__(self, s: Settings, http: httpx.AsyncClient):
-        self.base, self.http, self.cache = s.ifsc_api_base.rstrip("/"), http, _TTLCache(86400)
+        self.base, self.http, self.cache = s.ifsc_api_base.rstrip("/"), http, TTLCache(86400)
 
+    @traced("ifsc", lambda code: code.upper().strip(),
+            lambda i: f"{i.bank}, {i.branch}" if i.found else "code not found")
     async def lookup(self, code: str) -> IfscInfo:
         code = code.upper().strip()
         if (hit := self.cache.get(code)) is not None:
@@ -203,49 +220,62 @@ class IfscClient:
 # -------------------------------------------------------------- sanctions ----
 @dataclass
 class SanctionsHit:
-    name: str
-    matched: str
-    score: float
-    lists: str
-    ref: str
+    name: str          # the name we screened
+    matched: str       # the listed name it matched
+    score: float       # 0..1 similarity
+    lists: str         # programme, e.g. "OFAC SDN (IRAN)"
+    ref: str           # human-readable reference, e.g. "OFAC SDN ref 25578"
+    list_key: str = "" # which list ("ofac", "un", "eu", "uk"); one best hit per list and name
 
 
-SDN_WAIT_S = 25   # a case waits this long for an in-flight OFAC download, then reports "unavailable"
-UN_WAIT_S = 10    # ...and this long for the UN list (its server is slow), then screens OFAC only
+MATCH_MIN_SCORE = 92     # token-sort similarity (0-100) that counts as a possible match for compliance review
+MATCHES_PER_LIST = 3     # candidates kept per list and name
+MAX_HITS = 5             # possible matches reported per screening
+MATCH_CACHE_MAX = 20000  # cached names per process before the cache is cleared
+
+
+OFAC_WAIT_S = 25   # with no OFAC snapshot yet, a case waits this long for the first download
+OTHER_WAIT_S = 4   # ...and this long for the other lists; a list still loading is reported, not silently skipped
 
 
 class SanctionsClient:
-    """OpenSanctions /match when an API key is configured, otherwise the US Treasury
-    OFAC SDN list (+ UN list) downloaded once per instance and matched with rapidfuzz.
-    Each list downloads in one shared background task, so a case that times out never
-    cancels the download for the cases after it."""
+    """OpenSanctions /match when an API key is configured; otherwise the official government
+    lists (OFAC SDN, UN SC, EU FSF, UK), refreshed on a schedule and matched with rapidfuzz.
+    OFAC is mandatory: if it cannot be loaded the check fails closed (SourceUnavailable)."""
 
     def __init__(self, s: Settings, http: httpx.AsyncClient):
         self.s, self.http = s, http
-        self._sdn: list[tuple[str, str, str]] | None = None
-        self._un: list[tuple[str, str, str]] | None = None
-        self._tasks: dict[str, asyncio.Task] = {}
+        specs = {"ofac": ListSpec("ofac", "OFAC SDN", s.ofac_sdn_url, parse_ofac, timeout_s=60),
+                 "un": ListSpec("un", "UN Security Council", s.un_sanctions_url, parse_un, timeout_s=60),
+                 "eu": ListSpec("eu", "EU consolidated (FSF)", s.eu_sanctions_url, parse_eu, timeout_s=240),
+                 "uk": ListSpec("uk", "UK Sanctions List (FCDO)", s.uk_sanctions_url, parse_uk, timeout_s=120)}
+        keys = [k.strip() for k in s.sanctions_lists.split(",") if k.strip() in specs]
+        if "ofac" not in keys:
+            keys.insert(0, "ofac")
+        cache = s.sanctions_cache_dir if str(s.sanctions_cache_dir) not in ("", ".") else None
+        self.lists = SanctionsLists([specs[k] for k in keys], http, cache, s.sanctions_refresh_hours)
+        # name -> matches, valid only for the exact list snapshots it was computed on (the key holds
+        # their SHA-256), so a refreshed list can never serve a stale answer.
+        self._match_cache: dict[tuple[str, tuple[str, ...]], list[SanctionsHit]] = {}
 
     @property
     def name(self) -> str:
         if self.s.opensanctions_api_key:
             return "OpenSanctions"
-        return "OFAC SDN + UN Security Council lists" if self._un is not None else "OFAC SDN list (UN list not loaded)"
+        loaded = [x.label for x in self.lists.snapshots.values()]
+        return "Sanctions lists: " + (", ".join(loaded) if loaded else "OFAC SDN (loading)")
 
-    def _task(self, key: str, load) -> asyncio.Task:
-        """The shared download for one list; restarted if the previous attempt failed."""
-        t = self._tasks.get(key)
-        if t is None or (t.done() and (t.cancelled() or t.exception() is not None)):
-            t = self._tasks[key] = asyncio.create_task(load())
-        return t
-
-    async def screen(self, names: list[str], country: str | None = None) -> list[SanctionsHit]:
+    @traced("sanctions", lambda names, country=None: ", ".join(dict.fromkeys(n.strip() for n in names if n and n.strip())) or None,
+            lambda r: (f"{len(r[0])} possible match{'es' if len(r[0]) != 1 else ''}" if r[0] else "no matches")
+            + f" across {len(r[1])} list{'s' if len(r[1]) != 1 else ''}")
+    async def screen_with_coverage(self, names: list[str], country: str | None = None) -> tuple[list[SanctionsHit], list[dict]]:
+        """Matches plus the exact list snapshots screened (label, publication date, SHA-256)."""
         names = [n for n in dict.fromkeys(n.strip() for n in names if n and n.strip())]
         if not names:
-            return []
+            return [], []
         if self.s.opensanctions_api_key:
-            return await self._opensanctions(names, country)
-        return await self._ofac(names)
+            return await self._opensanctions(names, country), [{"label": "OpenSanctions (API)", "key": "opensanctions"}]
+        return await self._official(names)
 
     async def _opensanctions(self, names: list[str], country: str | None) -> list[SanctionsHit]:
         queries = {}
@@ -272,77 +302,53 @@ class SanctionsClient:
                                              f"https://www.opensanctions.org/entities/{res.get('id')}/"))
         return hits
 
-    async def _load_sdn(self) -> list[tuple[str, str, str]]:
-        if self._sdn is not None:
-            return self._sdn
-        try:
-            r = await self.http.get(self.s.ofac_sdn_url, follow_redirects=True, timeout=30)
-            r.raise_for_status()
-        except httpx.HTTPError as e:
-            raise SourceUnavailable(f"OFAC SDN list unavailable: {e}") from e
-        rows = []
-        for row in csv.reader(io.StringIO(r.text)):
-            if len(row) >= 4 and row[1] and row[1] != "-0-":
-                rows.append((row[0], row[1].strip(), row[3].strip()))  # ent_num, name, program
-        self._sdn = rows
-        log.info("Loaded %d OFAC SDN entries", len(rows))
-        return rows
-
-    async def _load_un(self) -> list[tuple[str, str, str]]:
-        """UN Security Council consolidated list (XML, parsed with defusedxml)."""
-        if self._un is not None:
-            return self._un
-        from defusedxml import ElementTree as DET
-        try:
-            r = await self.http.get(self.s.un_sanctions_url, follow_redirects=True, timeout=30)
-            r.raise_for_status()
-        except httpx.HTTPError as e:
-            raise SourceUnavailable(f"UN sanctions list unavailable: {e}") from e
-        root = DET.fromstring(r.content)
-        rows = []
-        for kind in ("INDIVIDUAL", "ENTITY"):
-            for el in root.iter(kind):
-                ref = (el.findtext("REFERENCE_NUMBER") or "").strip()
-                parts = [el.findtext(t) for t in ("FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME")]
-                name = " ".join(p.strip() for p in parts if p and p.strip())
-                if name:
-                    rows.append((ref, name, "UN SC"))
-                for al in el.iter(f"{kind}_ALIAS"):
-                    a = (al.findtext("ALIAS_NAME") or "").strip()
-                    if a:
-                        rows.append((ref, a, "UN SC alias"))
-        self._un = rows
-        log.info("Loaded %d UN sanctions entries", len(rows))
-        return rows
-
     async def warm(self) -> None:
-        """Start both downloads at startup so the first case doesn't spend its time budget on them."""
-        if self.s.opensanctions_api_key:
-            return
-        results = await asyncio.gather(self._task("sdn", self._load_sdn), self._task("un", self._load_un),
-                                       return_exceptions=True)
-        for e in results:
-            if isinstance(e, Exception):
-                log.warning("Sanctions list preload failed (will retry on the next case): %s", e)
+        """Load cached snapshots and start any due downloads at startup, so cases don't wait on them."""
+        if not self.s.opensanctions_api_key:
+            await self.lists.warm()
 
-    async def _ofac(self, names: list[str]) -> list[SanctionsHit]:
-        # shield(): a case hitting its wait limit must not cancel the shared download.
-        try:
-            sdn = list(await asyncio.wait_for(asyncio.shield(self._task("sdn", self._load_sdn)), SDN_WAIT_S))
-        except asyncio.TimeoutError:
-            raise SourceUnavailable("OFAC SDN list is still downloading") from None
-        try:
-            sdn += await asyncio.wait_for(asyncio.shield(self._task("un", self._load_un)), UN_WAIT_S)
-        except (asyncio.TimeoutError, SourceUnavailable) as e:
-            log.warning("UN sanctions list not available (%s); screening against OFAC only", e or "still downloading")
-        hits = []
-        for n in names:
-            for ent, sdn_name, program in sdn:
-                score = fuzz.token_sort_ratio(n.upper(), sdn_name.upper())
-                if score >= 92:
-                    src = program if program.startswith("UN") else f"OFAC SDN ({program})"
-                    hits.append(SanctionsHit(n, sdn_name, score / 100, src, f"{src} ref {ent}"))
-        return sorted(hits, key=lambda h: -h.score)[:5]
+    def status(self) -> list[dict]:
+        return self.lists.status()
+
+    async def _official(self, names: list[str]) -> tuple[list[SanctionsHit], list[dict]]:
+        keys = list(self.lists.specs)
+        snaps = await asyncio.gather(*(self.lists.ensure(k, OFAC_WAIT_S if k == "ofac" else OTHER_WAIT_S) for k in keys))
+        by_key = dict(zip(keys, snaps, strict=True))
+        if by_key.get("ofac") is None:
+            raise SourceUnavailable("OFAC SDN list is not available yet " + (self.lists.errors.get("ofac") or "(still downloading)"))
+        coverage = [{**sn.meta(), "screened": True} for sn in snaps if sn is not None]
+        coverage += [{"key": k, "label": self.lists.specs[k].label, "screened": False,
+                      "error": self.lists.errors.get(k) or "still downloading"} for k, sn in by_key.items() if sn is None]
+
+        versions = tuple(sn.sha256 for sn in snaps if sn is not None)
+
+        def match_one(n: str) -> list[SanctionsHit]:
+            key = (normalise(n), versions)
+            if (hit := self._match_cache.get(key)) is not None:
+                return hit
+            found = []
+            q = key[0]
+            for sn in snaps:
+                if sn is None:
+                    continue
+                for _, score, idx in process.extract(q, sn.choices, scorer=fuzz.token_sort_ratio,
+                                                     score_cutoff=MATCH_MIN_SCORE, limit=MATCHES_PER_LIST):
+                    e = sn.entries[idx]
+                    found.append(SanctionsHit(n, e.name, score / 100, e.program, f"{sn.label} ref {e.ref}", sn.key))
+            if len(self._match_cache) > MATCH_CACHE_MAX:
+                self._match_cache.clear()
+            self._match_cache[key] = found
+            return found
+
+        def match() -> list[SanctionsHit]:
+            hits = [h for n in names for h in match_one(n)]
+            best: dict[tuple[str, str], SanctionsHit] = {}
+            for h in hits:                      # the same person on several lists: keep each list's best
+                k = (h.name, h.list_key)
+                if k not in best or h.score > best[k].score:
+                    best[k] = h
+            return sorted(best.values(), key=lambda h: -h.score)[:MAX_HITS]
+        return await asyncio.to_thread(match), coverage
 
 
 @dataclass
@@ -353,12 +359,15 @@ class Sources:
     sanctions: SanctionsClient
     http: httpx.AsyncClient
     ifsc: IfscClient | None = None
+    gleif: "GleifClient | None" = None
+    vies: "ViesClient | None" = None
 
     @classmethod
     def build(cls, s: Settings) -> "Sources":
         http = httpx.AsyncClient(timeout=s.http_timeout_s, headers=UA)
+        from .registries import GleifClient, ViesClient
         return cls(RdapClient(s, http), DnsClient(s), FxClient(s, http), SanctionsClient(s, http), http,
-                   IfscClient(s, http))
+                   IfscClient(s, http), GleifClient(s, http), ViesClient(s, http))
 
     async def aclose(self):
         await self.http.aclose()

@@ -1,0 +1,30 @@
+# One command, whole product:  docker compose up --build   ->  http://localhost:8080
+# PostgreSQL + the app (web + background worker) with development sign-in and the sample cases.
+# For production use deploy/docker-compose.yml (real sign-in, migrate job, separate workers).
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_DB: vbw, POSTGRES_USER: vbw, POSTGRES_PASSWORD: vbw_demo_only }
+    volumes: [demo_pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "vbw"], interval: 3s, retries: 30 }
+  app:
+    build: .
+    depends_on: { db: { condition: service_healthy } }
+    ports: ["127.0.0.1:${VBW_PORT:-8080}:8080"]
+    environment:
+      STORE_BACKEND: sql
+      DATABASE_URL: postgresql+asyncpg://vbw:vbw_demo_only@db:5432/vbw
+      DB_AUTO_MIGRATE: "true"
+      BLOB_BACKEND: file
+      BLOB_DIR: /srv/data/blobs
+      SANCTIONS_CACHE_DIR: /srv/data/sanctions
+      AUTH_MODE: dev
+      ALLOW_DEV_AUTH: "true"
+      DEMO_ENABLED: "true"
+      RATE_LIMIT_PER_MINUTE: "6000"
+      WEBHOOK_ALLOW_INSECURE: "true"
+      GEMINI_MODE: api_key
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}          # optional: export it before `docker compose up`
+    volumes: [demo_data:/srv/data]
+    healthcheck: { test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8080/readyz')"], interval: 5s, retries: 30 }
+volumes: { demo_pgdata: {}, demo_data: {} }

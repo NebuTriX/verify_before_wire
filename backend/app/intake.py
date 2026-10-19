@@ -2,16 +2,20 @@
 and merges them into one structured PaymentRequest. Header facts override model output."""
 from __future__ import annotations
 
+from typing import Literal
+
 import logging
 import re
 from email.utils import parseaddr
 
-from .gemini import Gemini, GeminiError
+from .gemini import OUT_OF_QUOTA, Gemini, GeminiError
 from .models import PaymentRequest, SourceDoc
 from .guard import UNTRUSTED_NOTE
-from .parsing import AUDIO, DOCS
+from .parsing import DOCS, MEDIA
 
 log = logging.getLogger(__name__)
+
+ReadBy = Literal["gemini", "patterns"]
 
 SYSTEM = """You are the intake clerk of an accounts-payable fraud checkpoint.
 You receive one payment request delivered through several inputs, each wrapped with its label.
@@ -19,7 +23,7 @@ Extract ONE merged payment request.
 - Copy identifiers exactly (account numbers, IBAN, SWIFT/BIC, invoice numbers, amounts).
 - ifsc / gstin: Indian bank branch code and GST number if they appear; copy exactly.
 - currency: ISO-4217 code. beneficiary_country: ISO-3166 alpha-2 (infer from IBAN/SWIFT if absent).
-- transcript: verbatim transcript of any audio input, otherwise null.
+- transcript: verbatim transcript of any audio or video input (what is said), otherwise null.
 - citations: up to 8 exact quotes supporting the key fields, each with the input label.
 - conflicts: every fact that differs between inputs (amount, account, payee, deadline, who is asking),
   naming both labels. Empty list if they agree.
@@ -41,7 +45,7 @@ def _parts(gemini: Gemini, docs: list[SourceDoc], blobs: dict[str, bytes], with_
     parts = []
     for d in docs:
         parts.append(gemini.text_part(f'<input label="{d.label}" file="{d.filename}" type="{d.mime_type}">'))
-        if d.mime_type in AUDIO:
+        if d.mime_type in MEDIA:          # voice notes and video messages: Gemini hears/sees them natively
             if with_audio:
                 parts.append(gemini.bytes_part(blobs[d.label], d.mime_type))
             else:
@@ -99,27 +103,31 @@ PATTERN_NOTE = "fields were read with pattern matching, so check them against th
 
 
 async def extract(gemini: Gemini | None, docs: list[SourceDoc], blobs: dict[str, bytes]
-                  ) -> tuple[PaymentRequest, list[str]]:
-    """Returns (request, notes). Notes are short, user-facing descriptions of any fallback taken
-    (they are shown on the case page and kept in the audit trail)."""
+                  ) -> tuple[PaymentRequest, list[str], ReadBy]:
+    """Returns (request, notes, read_by). Notes are short, user-facing descriptions of any fallback
+    taken (shown on the case page and kept in the audit trail); read_by says who read the inputs."""
     notes: list[str] = []
     if gemini is None:
         notes.append(f"AI reading is off on this installation; {PATTERN_NOTE}.")
-        return apply_header_facts(regex_fallback(docs), docs), notes
-    has_audio = any(d.mime_type in AUDIO for d in docs)
+        return apply_header_facts(regex_fallback(docs), docs), notes, "patterns"
+    has_audio = any(d.mime_type in MEDIA for d in docs)
     try:
         req = await gemini.json(PaymentRequest, SYSTEM, _parts(gemini, docs, blobs, True))
     except GeminiError as e:
-        if not has_audio or str(e) == "quota used up":   # a second try can't succeed
+        if not has_audio or str(e) in OUT_OF_QUOTA:   # a second try can't succeed
             notes.append(f"AI reading unavailable ({e}); {PATTERN_NOTE}.")
-            return apply_header_facts(regex_fallback(docs), docs), notes
+            return apply_header_facts(regex_fallback(docs), docs), notes, "patterns"
         notes.append(f"The voice note couldn't be processed ({e}); the transcript was used instead.")
         try:
             req = await gemini.json(PaymentRequest, SYSTEM, _parts(gemini, docs, blobs, False))
         except GeminiError as e2:
             notes.append(f"AI reading unavailable ({e2}); {PATTERN_NOTE}.")
-            req = regex_fallback(docs)
-    if has_audio and not req.transcript:
-        t = next((d.text for d in docs if d.label.startswith("transcript") and d.text), None)
-        req.transcript = t
-    return apply_header_facts(req, docs), notes
+            return apply_header_facts(_with_transcript(regex_fallback(docs), docs), docs), notes, "patterns"
+    return apply_header_facts(_with_transcript(req, docs), docs), notes, "gemini"
+
+
+def _with_transcript(req: PaymentRequest, docs: list[SourceDoc]) -> PaymentRequest:
+    """Use a supplied transcript file when the audio itself was not transcribed."""
+    if any(d.mime_type in MEDIA for d in docs) and not req.transcript:
+        req.transcript = next((d.text for d in docs if d.label.startswith("transcript") and d.text), None)
+    return req
