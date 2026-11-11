@@ -12,7 +12,7 @@ jobs:
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements*.txt }
       - name: ffmpeg (voice & video forensics, call recordings)
         run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
@@ -35,7 +35,7 @@ jobs:
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - name: ffmpeg (voice & video forensics, call recordings)
         run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - run: pip install bandit==1.9.4 pip-audit==2.10.1
       - name: Static analysis (Bandit)
